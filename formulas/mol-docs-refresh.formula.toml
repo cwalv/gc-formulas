@@ -1,0 +1,523 @@
+description = """
+Refresh the beads-ui handbook docs at
+`projects/foundations/docs/beads-ui/` against the current tips of
+beads + gastown + gascity (per `rwv.lock`).
+
+Each run produces:
+- Mechanical citation-drift fixes (file:line that moved, fixed in place).
+- Semantic rewrites where schema / CLI / formula behaviour changed.
+- Flagged gaps (new concepts, not auto-written) — recorded in the entry
+  and optionally as follow-up beads.
+- A dated changelog entry under `docs/beads-ui/docs-changelog/` whose
+  **Tips** section doubles as the "where we left off" bookmark for
+  the next run. The latest entry IS the state.
+
+## Scope
+
+Three repos, each with its own path allowlist (commits outside the
+allowlist are auto-classified as "no material doc impact"):
+
+- **beads** — `github/gastownhall/beads/`
+  - `internal/types/` (schema)
+  - `cmd/bd/` (CLI surface)
+  - `internal/storage/schema/migrations/`
+  - `internal/formula/`, `internal/molecules/`, `internal/hooks/`
+  - `internal/recipes/`, `internal/tracker/`
+  - top-level `beads*.go`
+
+- **gastown** — `github/gastownhall/gastown/`
+  - `internal/beads/` (wrapper layer)
+  - `internal/formula/`, `internal/molecule/`, `internal/convoy/`
+  - `internal/mail/`, `internal/nudge/`, `internal/hooks/`
+  - `internal/agent/`, `internal/crew/`, `internal/mayor/`
+  - `internal/deacon/`, `internal/dog/`, `internal/polecat/`
+  - `internal/witness/`, `internal/refinery/`
+  - `cmd/gt/`
+
+- **gascity** — `github/gastownhall/gascity/`
+  - `internal/beads/` (Store abstraction)
+  - `internal/formula/`, `internal/molecule/`, `internal/convoy/`
+  - `internal/orders/`, `internal/sourceworkflow/`, `internal/graphroute/`
+  - `internal/mail/`, `internal/nudgequeue/`, `internal/convergence/`
+  - `internal/supervisor/`, `internal/session/`, `internal/runtime/`
+  - `internal/worker/`, `internal/dispatch/`
+  - `cmd/gc/`
+
+## Model
+
+Sling to `foundations/worker-sonnet` by default. Upgrade to
+`foundations/worker` (Opus) for a run if semantic-step quality is
+wobbly on a big schema change. This formula does not declare
+per-step run targets — the operator picks the pool.
+
+Triage prompt guidance aims to classify commits via diff-stat + path
+list in most cases; full-diff reads only when the stat is ambiguous.
+
+## Tips / state model
+
+The previous run's tips live in the **latest** changelog entry's
+`## Tips` section (no separate state file). The `plan` step reads
+`projects/foundations/docs/beads-ui/docs-changelog/` for the latest
+entry, extracts tips, and diffs against the current tips read from
+`projects/foundations/rwv.lock`. If the directory is empty (first
+run), the plan step falls back to "no prior tips" — the operator
+must seed an initial entry manually (a one-time bootstrap doc sits
+beside this formula).
+
+## Output locations
+
+- Scratch: `.gc/tmp/docs-refresh/` under the workweave root.
+  Files: `commits.json`, `triage.json`, `applied.json`. Cleaned up on
+  commit.
+- Entry: `projects/foundations/docs/beads-ui/docs-changelog/YYYY-MM-DD-{{label}}.md`
+- Index: `projects/foundations/docs/beads-ui/docs-changelog/README.md`
+
+## Variables
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `label`  | no | `refresh` | Filename suffix (e.g. `2026-05-15-refresh.md`). Set to a short kebab-case tag for notable runs. |
+| `max_commits` | no | `200` | Upper bound on triaged commits per run. Protection against huge backlogs — if exceeded, the run bails out asking the operator to run `rwv lock` and process in smaller chunks. |
+| `force_classify_all` | no | `false` | If true, send every commit to LLM triage (skip the path-allowlist filter). Use when investigating whether the allowlist is too aggressive. |
+
+## Usage
+
+```bash
+# Typical run (after `rwv lock` bumped per-repo tips):
+gc sling foundations/worker-sonnet --formula mol-docs-refresh
+
+# With a label:
+gc sling foundations/worker-sonnet --formula mol-docs-refresh --var label=post-gates-work
+
+# Fall back to Opus for a run where you expect heavy semantic rewrites:
+gc sling foundations/worker --formula mol-docs-refresh
+```
+"""
+formula = "mol-docs-refresh"
+version = 1
+
+[vars]
+
+[vars.label]
+description = "Filename suffix for the changelog entry (kebab-case)"
+default = "refresh"
+
+[vars.max_commits]
+description = "Upper bound on triaged commits per run; exceeded → bail"
+default = "200"
+
+[vars.force_classify_all]
+description = "Skip the path-allowlist pre-filter; LLM-triage everything"
+default = "false"
+
+# ------------------------------------------------------------------
+# Step 1: plan
+# ------------------------------------------------------------------
+
+[[steps]]
+id = "plan"
+title = "Collect + path-filter commits per repo since last changelog entry"
+type = "task"
+description = """
+Gather the commit set to triage this run.
+
+**1. Resolve paths and root:**
+```bash
+WEAVE=$(rwv resolve)
+cd "$WEAVE"
+SCRATCH="$WEAVE/.gc/tmp/docs-refresh"
+mkdir -p "$SCRATCH"
+```
+
+**2. Read previous tips from the latest changelog entry:**
+```bash
+DCL="$WEAVE/projects/foundations/docs/beads-ui/docs-changelog"
+LAST=$(ls -1 "$DCL"/20*-*.md 2>/dev/null | sort | tail -1)
+```
+
+If `LAST` is empty, this is the first run. Exit 0 with a scratch
+file containing an explicit marker so the `entry` step can write
+the seed entry:
+
+```bash
+if [ -z "$LAST" ]; then
+  echo '{"first_run": true}' > "$SCRATCH/commits.json"
+  exit 0
+fi
+```
+
+Otherwise, parse the Tips section. Tips are lines matching
+`^- <repo> @ <sha>` inside the first `## Tips` block:
+
+```bash
+awk '/^## Tips/{flag=1;next} /^## /{flag=0} flag && /^- /' "$LAST" \\
+  > "$SCRATCH/prev-tips.txt"
+# Expected lines:  - beads @ c446a2e
+#                  - gastown @ a1b2c3d
+#                  - gascity @ 031cfad
+```
+
+**3. Read current tips from rwv.lock:**
+
+`rwv.lock` at `projects/foundations/rwv.lock` records the pinned SHA
+per tracked repo. Parse it for the three repos:
+
+```bash
+LOCK="$WEAVE/projects/foundations/rwv.lock"
+# Extract current SHA per repo (format depends on rwv's lock schema;
+# use `rwv status --json` if available, else parse the yaml).
+```
+
+**4. For each repo, git log the range:**
+```bash
+for REPO_PAIR in \\
+  "beads:github/gastownhall/beads" \\
+  "gastown:github/gastownhall/gastown" \\
+  "gascity:github/gastownhall/gascity"; do
+  NAME=${REPO_PAIR%%:*}
+  DIR=${REPO_PAIR#*:}
+  PREV=$(grep "^- $NAME @" "$SCRATCH/prev-tips.txt" | awk '{print $NF}')
+  CURR=$(   ... extract from rwv.lock for $NAME ... )
+  if [ "$PREV" = "$CURR" ]; then
+    echo "$NAME unchanged at $CURR"
+    continue
+  fi
+  (cd "$WEAVE/$DIR" && git log --format='%H %s' "$PREV..$CURR") \\
+    > "$SCRATCH/commits-$NAME.raw"
+done
+```
+
+**5. Path-allowlist filter (unless `{{force_classify_all}}` is true):**
+
+For each commit, `git show --stat --name-only <sha>` and drop commits
+where NO touched file matches the repo's allowlist (see formula
+description for the lists). Use a small bash script or run via a
+single awk pass. Keep both the kept set and the dropped count — the
+entry will report both.
+
+**6. Cap at `{{max_commits}}`:**
+```bash
+TOTAL=$(cat "$SCRATCH"/commits-*.filtered | wc -l)
+if [ "$TOTAL" -gt {{max_commits}} ]; then
+  echo "FATAL: $TOTAL commits to triage exceeds max_commits={{max_commits}}" >&2
+  echo "Run rwv lock with a smaller step, or bump max_commits." >&2
+  exit 1
+fi
+```
+
+**7. Write `commits.json`:**
+
+Shape:
+```json
+{
+  "first_run": false,
+  "tips_prev": {"beads": "c446a2e", "gastown": "a1b2c3d", "gascity": "031cfad"},
+  "tips_curr": {"beads": "...", "gastown": "...", "gascity": "..."},
+  "commits": [
+    {"repo": "beads", "sha": "a1b2c3d", "subject": "...", "stat": {"files_changed": 3, "ins": 42, "del": 10}, "paths": ["internal/types/types.go", "..."], "allowlisted": true},
+    ...
+  ],
+  "dropped_by_allowlist": {"beads": 47, "gastown": 11, "gascity": 3}
+}
+```
+
+**Exit criteria:** `$SCRATCH/commits.json` is written. First-run
+short-circuit is marked `first_run=true` with no commits array.
+"""
+
+# ------------------------------------------------------------------
+# Step 2: triage
+# ------------------------------------------------------------------
+
+[[steps]]
+id = "triage"
+title = "Classify each surviving commit"
+type = "task"
+depends_on = ["plan"]
+description = """
+Read `commits.json` and classify each entry.
+
+**1. Load:**
+```bash
+WEAVE=$(rwv resolve)
+SCRATCH="$WEAVE/.gc/tmp/docs-refresh"
+jq . "$SCRATCH/commits.json"
+```
+
+If `first_run=true`, write `triage.json = {first_run: true, items: []}`
+and exit 0.
+
+**2. Classify:**
+
+For each commit, look at:
+- The subject line.
+- The stat (`files_changed`, `ins`, `del`).
+- The path list.
+- The full diff (`cd $DIR && git show <sha>`) — **only if the stat
+  alone is ambiguous**. Keep diff reads proportional to signal.
+
+Categories:
+
+| Category | Meaning | Action by `apply` |
+|---|---|---|
+| `citation-drift` | Rename / refactor that moved lines without changing semantics. | Mechanical: grep new location for cited text, update `path:line`. |
+| `schema-cli` | Added / removed / renamed a schema column, CLI flag, type constant, or formula schema field. | Semantic: re-read the relevant handbook section, rewrite. |
+| `new-concept` | A new concept the handbook doesn't cover. | Flag only; create a follow-up bead. Do not auto-write. |
+| `no-op` | Test fixtures, formatting, CI, dependency bumps, unrelated refactors. | Skip; record in entry summary. |
+
+**3. Affected-doc mapping:**
+
+For each classified commit, identify which handbook docs reference the
+affected code. Use the handbook index plus a `grep -rn` over
+`projects/foundations/docs/beads-ui/handbook/` for the relevant
+file/symbol. Record as `affected_docs: [...]`.
+
+**4. Write `triage.json`:**
+
+Shape:
+```json
+{
+  "first_run": false,
+  "items": [
+    {"sha": "a1b2c3d", "repo": "beads", "subject": "...", "category": "schema-cli", "affected_docs": ["handbook/reference/bead-schema.md", "01-data-model.md"], "evidence": "one-line: what in the diff made me classify it this way"},
+    ...
+  ],
+  "counts": {"citation-drift": N, "schema-cli": M, "new-concept": K, "no-op": L}
+}
+```
+
+**Exit criteria:** `triage.json` written with every commit classified.
+"""
+
+# ------------------------------------------------------------------
+# Step 3: apply
+# ------------------------------------------------------------------
+
+[[steps]]
+id = "apply"
+title = "Apply drift fixes + semantic updates; flag gaps"
+type = "task"
+depends_on = ["triage"]
+description = """
+Read `triage.json` and update the handbook.
+
+**1. Load:**
+```bash
+WEAVE=$(rwv resolve)
+SCRATCH="$WEAVE/.gc/tmp/docs-refresh"
+jq '.items[] | select(.category != "no-op")' "$SCRATCH/triage.json"
+```
+
+**2. Citation-drift (mechanical):**
+
+For each `citation-drift` item:
+- For each `affected_docs` entry, grep the cited `path:line` in the
+  doc.
+- In the source repo at the current tip, locate the new line for the
+  cited text (use `git log -L`, `git grep` as appropriate).
+- Replace the `path:line` in the doc.
+- Record the fix in `applied.json` — `{doc, before, after}`.
+
+Don't do semantic work here; if the diff is not a clean rename /
+move, escalate to `schema-cli` behavior.
+
+**3. Schema-cli (semantic):**
+
+For each `schema-cli` item:
+- Read the affected doc section (anchor via nearest H2/H3).
+- Read the changed code at the current tip.
+- Rewrite the section to match. Preserve citations (now pointing at
+  the new code).
+- Include one-line rationale in the entry's "Changes applied" section.
+
+Be conservative: if you're unsure what the change means, leave the
+section as-is, add a comment `<!-- TODO: refresh after GH#XXXX -->`,
+and record as a gap.
+
+**4. New-concept gaps:**
+
+For each `new-concept` item:
+- Write a gap line to `$SCRATCH/gaps.md` with the commit sha, subject,
+  and a one-paragraph "what this needs".
+- Create a follow-up bead:
+  ```bash
+  bd create "docs: cover <new concept> (<sha>)" \\
+    --type=task --priority=P3 \\
+    -d "Found by mol-docs-refresh.
+  See $SCRATCH/gaps.md for the one-paragraph brief.
+  Cite the commit: <sha> in <repo>."
+  ```
+- Record the bead id in `applied.json.gaps[]`.
+
+**5. Write `applied.json`:**
+
+Shape:
+```json
+{
+  "drift_fixes": [
+    {"doc": "handbook/reference/bead-schema.md", "before": "types.go:123", "after": "types.go:145"}
+  ],
+  "semantic_updates": [
+    {"doc": "handbook/reference/bd-commands.md", "section": "§3.1", "rationale": "bd clone-intent added"}
+  ],
+  "gaps": [
+    {"repo": "beads", "sha": "...", "bead": "fo-XXXXX", "brief": "..."}
+  ],
+  "no_ops": N
+}
+```
+
+**Exit criteria:** `applied.json` written. Docs modified in place.
+Gaps have beads filed.
+"""
+
+# ------------------------------------------------------------------
+# Step 4: entry
+# ------------------------------------------------------------------
+
+[[steps]]
+id = "entry"
+title = "Write the changelog entry and update the index"
+type = "task"
+depends_on = ["apply"]
+description = """
+Write the dated entry under
+`projects/foundations/docs/beads-ui/docs-changelog/`.
+
+**1. Load all scratch artifacts:**
+```bash
+WEAVE=$(rwv resolve)
+SCRATCH="$WEAVE/.gc/tmp/docs-refresh"
+COMMITS=$(jq . "$SCRATCH/commits.json")
+TRIAGE=$(jq . "$SCRATCH/triage.json")
+APPLIED=$(jq . "$SCRATCH/applied.json")
+```
+
+**2. Compute entry filename:**
+```bash
+DATE=$(date -u +%Y-%m-%d)
+DCL="$WEAVE/projects/foundations/docs/beads-ui/docs-changelog"
+ENTRY="$DCL/$DATE-{{label}}.md"
+# If already exists, append `-1`, `-2`, …
+```
+
+**3. Write the entry:**
+
+Shape — strictly follows this template so the next run's `plan` step
+can parse the Tips section:
+
+```markdown
+# YYYY-MM-DD {{label}}
+
+## Tips (at end of run)
+
+- beads @ <curr-sha>
+- gastown @ <curr-sha>
+- gascity @ <curr-sha>
+
+## Summary
+
+- beads: {{N}} material, {{M}} no-op ({{reason}})
+- gastown: {{N}} material, {{M}} no-op
+- gascity: {{N}} material, {{M}} no-op
+
+## Changes applied
+
+### handbook/reference/bead-schema.md
+- beads (sha): one-line description of the change → affected sections
+
+### ...
+
+## Gaps flagged (not auto-applied)
+
+- beads (sha): brief one-paragraph. Follow-up bead: fo-XXXXX.
+
+## Drift fixes
+
+- N `path:line` citations updated across M files (mechanical).
+```
+
+First-run case: the entry body is "bootstrap entry, no changes
+applied" plus the Tips reflecting the current `rwv.lock` state.
+
+**4. Update the index README:**
+
+`$DCL/README.md` lists entries in reverse-chronological order:
+```markdown
+# Docs changelog
+
+| Date | Label | Summary |
+|---|---|---|
+| 2026-05-15 | refresh | 4 applied, 1 gap, 8 drift fixes |
+| 2026-05-01 | refresh | 2 applied, 0 gaps, 3 drift fixes |
+```
+
+Prepend the new row; keep the same Markdown shape so automation
+parsing is stable.
+
+**Exit criteria:** `$ENTRY` exists. Index updated. No docs modified
+after this point until `commit` step runs.
+"""
+
+# ------------------------------------------------------------------
+# Step 5: commit
+# ------------------------------------------------------------------
+
+[[steps]]
+id = "commit"
+title = "Commit handbook updates and new changelog entry to master"
+type = "task"
+depends_on = ["entry"]
+description = """
+Stage + commit + clean up scratch.
+
+**1. Resolve paths:**
+```bash
+WEAVE=$(rwv resolve)
+SCRATCH="$WEAVE/.gc/tmp/docs-refresh"
+cd "$WEAVE/projects/foundations"
+```
+
+**2. Stage only `docs/beads-ui/` changes (not unrelated staging):**
+```bash
+git add docs/beads-ui/
+git status docs/beads-ui/
+```
+
+**3. Commit with a pathspec-scoped message** — pathspec form prevents
+bundling any pre-existing staged changes in this worktree:
+
+```bash
+git commit -m "$(cat <<'EOF'
+docs(beads-ui): docs-refresh {{label}} YYYY-MM-DD
+
+N drift fixes, M semantic updates, K gaps flagged.
+Tips: beads @ <sha> · gastown @ <sha> · gascity @ <sha>.
+
+See docs/beads-ui/docs-changelog/YYYY-MM-DD-{{label}}.md
+for the full entry.
+EOF
+)" -- docs/beads-ui/
+```
+
+(The operator sets the real stats and tips into the message from
+`applied.json` and the entry file.)
+
+**4. Clean up scratch:**
+```bash
+rm -rf "$SCRATCH"
+```
+
+**5. Leave `rwv sync` to the operator.** The formula does NOT push
+to the primary weave or run `rwv sync`. When the operator is ready,
+they run:
+
+```bash
+cd $(rwv resolve --primary)
+rwv sync <workweave-path>
+```
+
+**Exit criteria:** Commit landed on master. Scratch cleaned.
+The next run's `plan` step will read this entry's Tips as the "where
+we left off" bookmark.
+"""

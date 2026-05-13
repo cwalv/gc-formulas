@@ -1,0 +1,427 @@
+description = """
+Worker -> refinery cross-repo landing flow per fo-wcwhw canonical conventions.
+
+Per-bead workweave (named by bead-id, Decision 1) with try/finally cleanup
+(Decision 3) and per-step routing for worker -> refinery handoff (Decision 4).
+Refinery's merge step is part of this molecule -- no separate refinery patrol
+loop (Decision 5).
+
+Decisions exercised: D1 D2 D3 D4 D5 D6 D7 D8 D9 D10 D11.
+
+## Vars
+
+| Var               | Default        | Description |
+|-------------------|----------------|-------------|
+| issue             | (required)     | The work bead ID |
+| rig_name          | foundations    | Used in routing targets ({{rig_name}}/worker, {{rig_name}}/refinery) |
+| base_branch       | main           | Per-repo base branch the workweave is cut from |
+| setup_command     | ""             | Workspace-root setup; empty = skip |
+| typecheck_command | ""             | Workspace-root typecheck; empty = skip |
+| lint_command      | ""             | Workspace-root lint; empty = skip |
+| build_command     | ""             | Workspace-root build; empty = skip |
+| test_command      | ""             | Workspace-root tests; empty = skip |
+
+## Substrate preconditions
+
+- city.toml `[daemon] formula_v2 = true`.
+- A bead labeled `rig-merge-mutex` of type `mutex` exists in this rig's bd
+  (created by fo-6wesg setup; verified at runtime by the merge step).
+- `projects/foundations/orders/scripts/refinery-step.sh` exists and is
+  executable (created by fo-ga1f3); env contract documented in the script's
+  header.
+
+## Cleanup contract (Decision 11)
+
+`cleanup` runs after `body` reaches terminal state, regardless of outcome:
+- work bead closed (refinery merged)        -> delete per-bead workweave
+- work bead reopened (refinery rejected)    -> preserve workweave for resume
+- work bead in_progress (mid-body abort)    -> preserve workweave for inspection
+
+Stale-workweave reaper is a separate concern; not handled here.
+
+## Path derivation convention
+
+Every body step's bash block re-derives the per-bead workweave path the same
+way (Decision 1: workweave name == bead-id, no metadata read):
+
+  RIG_WEAVE=$(rwv resolve)
+  WEAVE_ROOT="$(dirname "$(dirname "$RIG_WEAVE")")"
+  WORKWEAVE_DIR="$WEAVE_ROOT/.workweaves/foundations--{{issue}}"
+
+This assumes each step body starts with cwd inside the rig workweave so
+`rwv resolve` returns the rig path. If the harness preserves cwd across step
+bodies in the same continuation, the cd at the top of each block lands in
+the per-bead workweave; if not, the same derivation re-anchors against rig.
+"""
+formula = "mol-weave-work"
+version = 3
+contract = "graph.v2"
+
+[vars]
+[vars.issue]
+description = "The work bead ID assigned to this molecule"
+required = true
+
+[vars.rig_name]
+description = "Rig name; substituted into routing targets ({{rig_name}}/worker, {{rig_name}}/refinery)"
+default = "foundations"
+
+[vars.base_branch]
+description = "Per-repo base branch the workweave is cut from"
+default = "main"
+
+[vars.setup_command]
+description = "Workspace-root setup/install command. Empty = skip."
+default = ""
+
+[vars.typecheck_command]
+description = "Workspace-root typecheck command. Empty = skip."
+default = ""
+
+[vars.lint_command]
+description = "Workspace-root lint command. Empty = skip."
+default = ""
+
+[vars.build_command]
+description = "Workspace-root build command. Empty = skip."
+default = ""
+
+[vars.test_command]
+description = "Workspace-root test command. Empty = skip."
+default = ""
+
+# === Initial context load (worker session) ===
+[[steps]]
+id = "load-context"
+title = "Load context"
+description = """
+Initial worker session warmup. Runs in the rig workweave (worker pool's
+spawn dir) before any per-bead workweave exists.
+
+```bash
+gc prime
+bd prime
+bd show {{issue}}
+bd show {{issue}} --json | jq '.[0].metadata'
+gc mail inbox
+```
+"""
+metadata = { "gc.continuation_group" = "worker", "gc.session_affinity" = "require" }
+
+[steps.retry]
+max_attempts = 3
+on_exhausted = "hard_fail"
+
+# === Body scope (terminal latch; cleanup runs after this regardless) ===
+[[steps]]
+id = "body"
+title = "Worker body scope"
+needs = ["workspace-setup", "preflight-tests", "implement", "self-review", "merge"]
+description = """
+Members may abort_scope on failure; merge rejects by exiting non-zero
+(Decision 11), mechanically equivalent to abort. Either way, cleanup runs.
+"""
+metadata = { "gc.kind" = "scope", "gc.scope_name" = "worker-body", "gc.scope_role" = "body" }
+
+# === workspace-setup (worker pool) ===
+[[steps]]
+id = "workspace-setup"
+title = "Create or resume per-bead workweave"
+needs = ["load-context"]
+assignee = "{{rig_name}}/worker"
+description = """
+Decision 1: workweave name == bead-id. The per-bead workweave path is
+derivable from the rig weave root + bead ID; nothing gets stamped on
+the bead.
+
+Rejection-aware resume: if the bead carries `rejection_reason`, rebase
+this workweave's branches onto the rig workweave's tip before continuing.
+
+```bash
+RIG_WEAVE=$(rwv resolve)
+WEAVE_ROOT="$(dirname "$(dirname "$RIG_WEAVE")")"
+WORKWEAVE_DIR="$WEAVE_ROOT/.workweaves/foundations--{{issue}}"
+
+if [ ! -d "$WORKWEAVE_DIR" ]; then
+  cd "$RIG_WEAVE"
+  rwv workweave foundations create "{{issue}}" --from "$RIG_WEAVE"
+fi
+cd "$WORKWEAVE_DIR"
+
+for repo in github/*/*/; do
+  (cd "$repo" && git fetch --prune origin) || true
+done
+(cd projects/*/ 2>/dev/null && git fetch --prune origin 2>/dev/null) || true
+
+REJECTION=$(bd show {{issue}} --json | jq -r '.[0].metadata.rejection_reason // empty')
+if [ -n "$REJECTION" ]; then
+  echo "Resuming after rejection: $REJECTION"
+  if ! rwv sync "$RIG_WEAVE" --strategy=rebase; then
+    rwv abort
+    echo "FATAL: cannot rebase peer workweave onto rig; resolve manually"
+    exit 1
+  fi
+  bd update {{issue}} --unset-metadata rejection_reason
+fi
+
+cd "$WORKWEAVE_DIR"
+{{setup_command}}
+```
+"""
+metadata = { "gc.scope_ref" = "body", "gc.scope_role" = "setup", "gc.on_fail" = "abort_scope", "gc.continuation_group" = "worker", "gc.session_affinity" = "require" }
+
+[steps.retry]
+max_attempts = 3
+on_exhausted = "hard_fail"
+
+# === preflight-tests (worker pool) ===
+[[steps]]
+id = "preflight-tests"
+title = "Verify base state passes checks"
+needs = ["workspace-setup"]
+assignee = "{{rig_name}}/worker"
+description = """
+Confirm the workspace is healthy before starting implementation. Failures
+here mean the rig itself is broken; abort_scope and let cleanup preserve
+the workweave for inspection.
+
+On rejection-resume, this re-checks that the (post-rebase) base + prior
+work commits still pass; failure surfaces a regression introduced by the
+rebase, which the worker will diagnose in `implement`.
+
+```bash
+RIG_WEAVE=$(rwv resolve)
+WEAVE_ROOT="$(dirname "$(dirname "$RIG_WEAVE")")"
+WORKWEAVE_DIR="$WEAVE_ROOT/.workweaves/foundations--{{issue}}"
+cd "$WORKWEAVE_DIR"
+
+{{setup_command}}
+{{typecheck_command}}
+{{lint_command}}
+{{test_command}}
+```
+"""
+metadata = { "gc.scope_ref" = "body", "gc.scope_role" = "member", "gc.on_fail" = "abort_scope", "gc.continuation_group" = "worker", "gc.session_affinity" = "require" }
+
+[steps.retry]
+max_attempts = 3
+on_exhausted = "hard_fail"
+
+# === implement (worker pool) ===
+[[steps]]
+id = "implement"
+title = "Implement the work"
+needs = ["preflight-tests"]
+assignee = "{{rig_name}}/worker"
+description = """
+Read `bd show {{issue}}` for the spec. Edit files in the workweave's
+per-repo worktrees. Commit per repo with descriptive messages.
+
+Per fo-wcwhw / source-doc defect catalog: DO NOT include the issue ID
+in commit messages -- observed agent confusion when the wisp ID and
+the issue ID differ.
+
+```bash
+RIG_WEAVE=$(rwv resolve)
+WEAVE_ROOT="$(dirname "$(dirname "$RIG_WEAVE")")"
+WORKWEAVE_DIR="$WEAVE_ROOT/.workweaves/foundations--{{issue}}"
+cd "$WORKWEAVE_DIR"
+
+bd show {{issue}}
+# ... edit code in github/<owner>/<repo>/, commit per repo ...
+```
+
+If you discover scope-creep work, file a separate bead (`bd create
+--title ... --type bug --priority 2`) and stay scoped. If stuck >15
+min, mail mayor.
+"""
+metadata = { "gc.scope_ref" = "body", "gc.scope_role" = "member", "gc.on_fail" = "abort_scope", "gc.continuation_group" = "worker", "gc.session_affinity" = "require" }
+
+[steps.retry]
+max_attempts = 3
+on_exhausted = "hard_fail"
+
+# === self-review (worker pool) ===
+[[steps]]
+id = "self-review"
+title = "Verify implementation; hard-fail on residue"
+needs = ["implement"]
+assignee = "{{rig_name}}/worker"
+description = """
+Re-run quality checks. Confirm no uncommitted state. Per fo-wcwhw +
+source-doc defect catalog: NO autocommit fallback -- uncommitted state
+at self-review means implement didn't finish cleanly; halt and fail
+rather than papering over with a "chore: capture remaining work" sweep.
+
+```bash
+RIG_WEAVE=$(rwv resolve)
+WEAVE_ROOT="$(dirname "$(dirname "$RIG_WEAVE")")"
+WORKWEAVE_DIR="$WEAVE_ROOT/.workweaves/foundations--{{issue}}"
+cd "$WORKWEAVE_DIR"
+
+# Inspect diff per touched repo
+for repo in github/*/*/; do
+  (cd "$repo" \\
+    && BR=$(git branch --show-current) \\
+    && BASE="${BR#*/}" \\
+    && if git log "origin/$BASE..HEAD" --oneline 2>/dev/null | grep -q .; then
+         echo "=== $repo ==="
+         git diff "origin/$BASE...HEAD"
+       fi)
+done
+
+# Run all configured checks
+{{setup_command}}
+{{typecheck_command}}
+{{lint_command}}
+{{build_command}}
+{{test_command}}
+
+# Hard-fail on uncommitted residue (no autocommit fallback)
+DIRTY=""
+for repo in github/*/*/; do
+  if [ -n "$(git -C "$repo" status --porcelain)" ]; then
+    echo "FAIL: uncommitted state in $repo"
+    git -C "$repo" status
+    DIRTY=1
+  fi
+done
+for proj in projects/*/; do
+  if [ -n "$(git -C "$proj" status --porcelain 2>/dev/null)" ]; then
+    echo "FAIL: uncommitted state in $proj"
+    git -C "$proj" status
+    DIRTY=1
+  fi
+done
+[ -z "$DIRTY" ] || exit 1
+```
+"""
+metadata = { "gc.scope_ref" = "body", "gc.scope_role" = "member", "gc.on_fail" = "abort_scope", "gc.continuation_group" = "worker", "gc.session_affinity" = "require" }
+
+[steps.retry]
+max_attempts = 3
+on_exhausted = "hard_fail"
+
+# === merge (refinery pool) -- judgment-bearing ===
+[[steps]]
+id = "merge"
+title = "Refinery merge (script + judgment, bias toward rejection)"
+needs = ["self-review"]
+assignee = "{{rig_name}}/refinery"
+description = """
+Refinery agent runs this step. Acquires the rig-merge-mutex (Decision 6,
+fo-6wesg), invokes the deterministic merge script (Decision 8, fo-ga1f3
+-- the script is the agent's TOOL), applies judgment in BOTH success and
+failure paths with bias toward rejection (see refinery prompt fo-nz121
+for the judgment contract).
+
+Per Decision 7: rejection writes status + metadata + assignee in a SINGLE
+atomic `bd update` so partial failures cannot leave inconsistent state.
+Per Decision 11: reject is mechanically equivalent to abort -- exit
+non-zero so the body scope aborts and cleanup preserves the workweave
+for resume.
+
+```bash
+WORK="{{issue}}"
+RIG_WEAVE=$(rwv resolve)
+WEAVE_ROOT="$(dirname "$(dirname "$RIG_WEAVE")")"
+PEER_WEAVE="$WEAVE_ROOT/.workweaves/foundations--$WORK"
+
+# 1. Acquire mutex (Decision 6: lookup by label so the same formula
+#    works across rigs; each rig has its own bd database).
+MUTEX_ID=$(bd list --label=rig-merge-mutex --type=mutex --status=open --json \\
+           | jq -r '.[0].id // empty')
+if [ -z "$MUTEX_ID" ]; then
+  echo "FAIL: no rig-merge-mutex bead in this rig's bd (run fo-6wesg setup)"
+  exit 1
+fi
+bd update "$MUTEX_ID" --claim   # contention semantics: see fo-6wesg
+
+# 2. Invoke deterministic script (Decision 8: script is the tool).
+RESULT_JSON=$(mktemp)
+WORK="$WORK" RIG_WEAVE="$RIG_WEAVE" PEER_WEAVE="$PEER_WEAVE" \\
+  PROJECT="foundations" TEST_CMD="{{test_command}}" \\
+  STRUCTURED_OUTPUT="$RESULT_JSON" \\
+  "$RIG_WEAVE/projects/foundations/orders/scripts/refinery-step.sh"
+SCRIPT_EXIT=$?
+SCRIPT_OUTCOME=$(jq -r '.outcome // "unknown"' "$RESULT_JSON" 2>/dev/null)
+
+# 3. Agent applies judgment HERE (Decision 8: bias toward rejection
+#    in BOTH paths). The pseudocode below is illustrative; the actual
+#    decision is the agent's reasoning, framed by the refinery prompt
+#    (fo-nz121).
+#
+#    On script success (SCRIPT_EXIT=0): inspect for structural correctness
+#      (intent-conflicts, contract violations, coverage gaps the script
+#       cannot see). Reject on doubt.
+#    On script failure (SCRIPT_EXIT!=0): only resolve mechanically with
+#      high confidence. Otherwise reject.
+#
+#   if (judgment says ACCEPT):
+#     bd close "$WORK" --reason "merged: <one-line summary>"
+#     REJECTED=""
+#   else:
+#     REASON="<concrete: which gate failed, what conflict, what concern>"
+#     # Decision 9: read forward target from gc.routed_from, fall back
+#     # to the worker pool. Auto-picks up multi-hop chains when the
+#     # substrate starts stamping gc.routed_from.
+#     TARGET=$(bd show "$WORK" --json \\
+#              | jq -r '.[0].metadata."gc.routed_from" // "{{rig_name}}/worker"')
+#     # Decision 7: atomic single-bd-update; do NOT use `gc sling`
+#     # (multi-step, can't be made atomic with the state changes).
+#     bd update "$WORK" \\
+#       --status=open \\
+#       --set-metadata rejection_reason="$REASON" \\
+#       --set-metadata gc.routed_to="$TARGET" \\
+#       --assignee=
+#     REJECTED="yes"
+
+# 4. Release mutex (always).
+bd update "$MUTEX_ID" --assignee=
+
+# 5. Decision 11: reject is mechanically equivalent to scope abort.
+[ "$REJECTED" = "yes" ] && exit 1
+exit 0
+```
+
+Mail mayor before guessing on substrate questions not covered by
+fo-wcwhw or the refinery prompt.
+"""
+metadata = { "gc.scope_ref" = "body", "gc.scope_role" = "member", "gc.on_fail" = "abort_scope", "gc.continuation_group" = "refinery" }
+
+[steps.retry]
+max_attempts = 1
+on_exhausted = "hard_fail"
+
+# === cleanup (try/finally; runs after body terminal regardless) ===
+[[steps]]
+id = "cleanup"
+title = "Tear down workweave only on confirmed success"
+needs = ["body"]
+assignee = "{{rig_name}}/worker"
+description = """
+Decision 11: workweave deletion only when the work bead is closed
+(refinery merged successfully). Reject (work bead reopened with
+rejection_reason) and mid-body abort (work bead in_progress) both
+preserve the workweave for resume / inspection. Stale-workweave reaper
+handles eventual cleanup.
+
+```bash
+RIG_WEAVE=$(rwv resolve)
+WEAVE_ROOT="$(dirname "$(dirname "$RIG_WEAVE")")"
+WORK_STATUS=$(bd show {{issue}} --json | jq -r '.[0].status')
+
+if [ "$WORK_STATUS" = "closed" ]; then
+  cd "$WEAVE_ROOT"
+  rwv workweave foundations delete "{{issue}}" || \\
+    echo "WARN: workweave teardown failed for {{issue}} -- manual cleanup may be needed"
+else
+  echo "preserving workweave foundations--{{issue}} (work bead status=$WORK_STATUS)"
+fi
+```
+"""
+metadata = { "gc.kind" = "cleanup", "gc.scope_role" = "teardown" }
+
+[steps.retry]
+max_attempts = 1
+on_exhausted = "hard_fail"

@@ -1,0 +1,216 @@
+description = """
+DEPRECATED 2026-05-09 (fo-ia4js): superseded by `mol-weave-work` v3 graph.v2
+contract per fo-wcwhw. The new mol-weave-work no longer extends this
+formula -- it inlines workspace-setup, preflight-tests, implement, and
+self-review as graph.v2 scope members with explicit per-step routing.
+This file is now an orphan (no other formulas extend it as of 2026-05-09)
+and can be deleted in a follow-up.
+
+----- ORIGINAL DESCRIPTION BELOW -----
+
+Weave-do-work formula — adds code-authoring steps (preflight-tests,
+implement, self-review) on top of `mol-weave-base`'s workspace lifecycle.
+
+Extend this when your variant authors code across repos in a per-bead
+workweave. Extend `mol-weave-base` directly when your variant ships
+already-authored artifacts (upstream submission, followup fixups,
+cleanup flows) — those don't need the author loop.
+
+Inherits load-context + workspace-setup from mol-weave-base. Adds
+the three code-authoring steps. Variant formulas extending this add
+their terminal step (submit-to-refinery, commit-lock-and-push, etc.).
+
+## Variables (in addition to mol-weave-base)
+
+| Variable | Source | Description |
+|----------|--------|-------------|
+| typecheck_command | rig config | Workspace-root typecheck. Empty = skip. |
+| test_command | rig config | Workspace-root tests. Empty = skip. |
+| lint_command | rig config | Workspace-root lint. Empty = skip. |
+| build_command | rig config | Workspace-root build. Empty = skip. |
+
+All `*_command` vars run from the weave root (`$(rwv resolve)`).
+For per-repo commands use `cd github/<owner>/<repo> && <cmd>`."""
+formula = "mol-weave-do-work"
+extends = ["mol-weave-base"]
+version = 1
+
+[vars]
+[vars.typecheck_command]
+description = "Workspace-root typecheck command. Runs from $(rwv resolve). Empty = skip."
+default = ""
+
+[vars.test_command]
+description = "Workspace-root test command. Runs from $(rwv resolve). Empty = skip."
+default = ""
+
+[vars.lint_command]
+description = "Workspace-root lint command. Runs from $(rwv resolve). Empty = skip."
+default = ""
+
+[vars.build_command]
+description = "Workspace-root build command. Runs from $(rwv resolve). Empty = skip."
+default = ""
+
+[[steps]]
+id = "preflight-tests"
+title = "Verify pre-flights pass at weave root"
+needs = ["workspace-setup"]
+description = """
+Confirm the workspace is healthy BEFORE implementing.
+
+**Config: typecheck_command = {{typecheck_command}}**
+**Config: lint_command = {{lint_command}}**
+**Config: test_command = {{test_command}}**
+
+**Skip this step if resuming a rejected branch** — pre-flights were
+verified on the prior attempt. Close this step and proceed.
+
+**1. Run pre-flights from the weave root (skip empty commands):**
+```bash
+cd "$(rwv resolve)"
+{{typecheck_command}}
+{{lint_command}}
+{{test_command}}
+```
+
+Workspace-level commands see all repos via ecosystem files (`go.work`,
+Cargo workspace, pnpm workspaces). Per-repo-only checks belong in the
+implement/self-review steps after `cd github/<owner>/<repo>`.
+
+**2. If pre-flights pass:** proceed.
+
+**3. If pre-flights fail:**
+
+File a bead and proceed. Do NOT fix pre-existing failures — that's
+not your assignment.
+
+FORBIDDEN: Pushing to any `{{base_branch}}` to fix pre-existing issues.
+
+```bash
+bd create --title "Pre-existing failure at weave root: <summary>" \\
+  --type bug --priority 1
+gc mail send mayor -s "NOTICE: workspace pre-flights failing" \\
+  -m "Filed: <bead-id>. Proceeding with {{issue}}."
+```
+
+**Exit criteria:** Pre-flights pass (or pre-existing bug filed)."""
+
+[[steps]]
+id = "implement"
+title = "Implement the solution across touched repos"
+needs = ["preflight-tests"]
+description = """
+Do the actual implementation work. Files live in
+`github/<owner>/<repo>/...`. Each repo has its own git worktree on an
+ephemeral branch — commit per-repo.
+
+**Working principles:**
+- Follow each repo's existing conventions
+- Make atomic, focused commits (one concern per commit)
+- Keep changes scoped to the assigned issue
+- Don't scope-creep across repos; if you discover unrelated work, file
+  a separate bead
+
+**If resuming a rejected branch:** Read `metadata.rejection_reason` from
+load-context. Focus on fixing the specific issue; don't redo everything.
+
+**Commit per repo:**
+```bash
+cd github/<owner>/<repo>
+git add <files>
+git commit -m "<type>: <description> ({{issue}})"
+cd -            # back to weave root
+```
+Commit types: feat, fix, refactor, test, docs, chore.
+
+**Cross-repo imports resolve locally** through ecosystem files — no
+publish/bump step within the weave. If you bump a published version
+for downstream consumers, do it as a separate explicit commit.
+
+**Discovered work (outside scope):**
+```bash
+bd create --title "Found: <description>" --type bug --priority 2
+```
+Do NOT fix unrelated issues here.
+
+**If stuck (>15 min):**
+```bash
+gc mail send mayor -s "HELP: stuck on {{issue}}" \\
+  -m "Problem: <what's blocking>. Tried: <what you've attempted>."
+```
+
+**If context filling up:**
+```bash
+gc runtime request-restart
+```
+WARNING: `request-restart` preserves committed git state only. Commit
+anything you want to keep BEFORE requesting a restart — non-git files
+(scratch notes, uncommitted edits) are lost across restart.
+
+**Exit criteria:** Implementation complete, all changes committed in
+their respective `github/<owner>/<repo>/` worktrees."""
+
+[[steps]]
+id = "self-review"
+title = "Self-review across touched repos and run workspace tests"
+needs = ["implement"]
+description = """
+Review your changes and verify they work.
+
+**Config: setup_command = {{setup_command}}**
+**Config: typecheck_command = {{typecheck_command}}**
+**Config: lint_command = {{lint_command}}**
+**Config: build_command = {{build_command}}**
+**Config: test_command = {{test_command}}**
+
+**1. Review the diff for each touched repo:**
+```bash
+cd "$(rwv resolve)"
+for repo in github/*/*/; do
+  cd "$repo"
+  BRANCH=$(git branch --show-current)
+  BASE="${BRANCH#*/}"                      # strip workweave prefix
+  if git log "origin/$BASE..HEAD" --oneline 2>/dev/null | grep -q .; then
+    echo "=== $repo ==="
+    git diff "origin/$BASE...HEAD"
+    git log --oneline "origin/$BASE..HEAD"
+    git diff --stat "origin/$BASE...HEAD"
+  fi
+  cd - >/dev/null
+done
+```
+Look for: bugs, security issues, style violations, missing error
+handling, debug cruft, unintended file changes. Fix anything you find.
+
+**2. Run quality checks from the weave root (skip empty commands):**
+```bash
+cd "$(rwv resolve)"
+{{setup_command}}
+{{typecheck_command}}
+{{lint_command}}
+{{build_command}}
+{{test_command}}
+```
+
+**ALL CHECKS MUST PASS.** If your change caused a failure, fix it.
+If pre-existing, file a bead and note it in the submit step.
+
+**3. Ensure everything is committed in every touched repo:**
+```bash
+for repo in github/*/*/; do
+  cd "$repo"
+  if [ -n "$(git status --porcelain)" ]; then
+    echo "WARN: uncommitted changes in $repo"
+    git status
+  fi
+  cd - >/dev/null
+done
+```
+Variant submit steps run a belt-and-suspenders `git add -A && git
+commit` safety net, but self-review is where you catch uncommitted work
+deliberately.
+
+NEVER discard implementation changes with `git checkout -- .`
+
+**Exit criteria:** All checks pass, every touched repo is committed."""

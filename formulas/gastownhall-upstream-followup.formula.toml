@@ -1,0 +1,582 @@
+description = """
+Follow-up cycle for an already-submitted upstream PR. Sibling of
+`gastownhall-upstream`; consumes the PR metadata that formula wrote to
+the bead plus a `trigger_reason` describing why a fix is needed.
+Extends `mol-weave-base` so the per-bead workweave lifecycle is
+inherited — followup pours get the same isolation from other
+foundations work as the parent submission.
+
+Intended caller: `gascity-upstream-status` watcher order. When a
+qualifying state transition fires (CI rollup → FAILURE, or manual
+operator escalation from a CHANGES_REQUESTED review), the order
+re-opens the source bead (if deferred), slings this formula with the
+PR coordinates, then records the molecule ID on the bead. The formula
+fetches the live review / check payload, lets the LLM step author a
+`fixup!` commit on top of the existing fork branch, runs `make check`
+against `upstream-test-ref` (integration + feature commits), and
+pushes the fixup commit to the same branch so the PR updates in
+place. The bead is re-deferred at the end of `record` so the worker
+pool doesn't re-claim while the PR continues its review cycle.
+
+## Trigger policy (per sling_policy amendment on fo-upstream-feedback)
+
+Two `trigger_reason` values are supported:
+
+- `ci-failure` — auto-slung by `gascity-upstream-status` when
+  statusCheckRollup transitions to include FAILURE. Mechanical case.
+- `changes-requested` — *not* auto-slung. Mayor decides after reading
+  the review. If mayor decides the change is mechanical enough to
+  automate, they sling manually with `trigger_reason=changes-requested`.
+
+## Re-submission semantics
+
+- New commits on top. No force-push. See design §4.
+- Commit convention: `fixup!` prefix referencing the most recent
+  commit on the PR head branch, so maintainer-squash merges cleanly.
+- Plain `git push {{fork_remote}} HEAD:{{pr_head_branch}}`. If the
+  remote rejects, the formula hard-fails and mails mayor — automation
+  does not reconcile diverged history.
+
+## Variables
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `issue` | yes (inherited) | — | Source bead ID carrying the PR metadata |
+| `base_branch` | no (inherited) | `main` | Workweave-ephemeral-branches base (unused by followup steps; present to satisfy inherited workspace-setup) |
+| `setup_command` | no (inherited) | `` | Weave-root setup; empty = skip |
+| `pr_url` | yes | — | Full PR URL; used for all `gh` operations |
+| `pr_number` | yes | — | PR number (display / logging) |
+| `pr_repo` | yes | — | `{{upstream_owner}}/{{upstream_repo}}` |
+| `pr_head_branch` | yes | — | Branch on the fork the PR tracks |
+| `pr_base_branch` | yes | — | Upstream base branch for diff range |
+| `trigger_reason` | yes | — | `ci-failure` or `changes-requested` |
+| `fork_remote` | no | `cwalv` | Git remote name for the fork |
+| `integration_remote` | no | `cwalv` | Integration fork remote |
+| `integration_branch` | no | `integration` | Integration branch name |
+
+Design doc: `docs/weave-formula-roles-refactor.md` (§1.4 "Prior art", in `cwalv/project-foundations`)
+Parent formula: `gastownhall-upstream.formula.toml`
+Watcher order: `orders/gascity-upstream-status.sh`
+"""
+formula = "gastownhall-upstream-followup"
+extends = ["mol-weave-base"]
+version = 2
+contract = "graph.v2"
+
+[vars]
+[vars.pr_url]
+description = "Full PR URL"
+required = true
+
+[vars.pr_number]
+description = "PR number"
+required = true
+
+[vars.pr_repo]
+description = "Upstream {owner}/{repo}"
+required = true
+
+[vars.pr_head_branch]
+description = "Branch on the fork the PR tracks (fix commits land here)"
+required = true
+
+[vars.pr_base_branch]
+description = "Upstream base branch (for diff range / test-ref build)"
+required = true
+
+[vars.trigger_reason]
+description = "What triggered this followup: 'ci-failure' or 'changes-requested'"
+required = true
+
+[vars.fork_remote]
+description = "Git remote name for the fork push"
+default = "cwalv"
+
+[vars.integration_remote]
+description = "Git remote name for the integration fork branch"
+default = "cwalv"
+
+[vars.integration_branch]
+description = "Integration branch on the fork (rebuilt lazily at test time)"
+default = "integration"
+
+[[steps]]
+id = "fetch-pr-state"
+title = "Validate trigger_reason, fetch live PR payload, stage scratch files"
+needs = ["workspace-setup"]
+description = """
+Validate `trigger_reason`, resolve the target repo path from the
+per-bead workweave, and write scratch files with the live
+review/comments/check payload for `apply-fix` to read.
+
+Inherited `workspace-setup` has already created the per-bead workweave
+and left each repo on `<workweave>/{{base_branch}}`. This step only
+consumes PR state; it does not create or modify the workweave.
+
+The in-flight de-dup marker (`pr_followup_inflight_molecule`) is
+managed by the `gascity-upstream-status` watcher, not this formula —
+the watcher captures the wisp root bead ID when it slings and writes
+the marker itself. This step only consumes PR state.
+
+**1. Validate trigger_reason:**
+```bash
+case "{{trigger_reason}}" in
+  ci-failure|changes-requested) : ;;
+  *) echo "FATAL: trigger_reason must be 'ci-failure' or 'changes-requested' (got '{{trigger_reason}}')"; exit 1 ;;
+esac
+```
+
+**2. Resolve repo path from the per-bead workweave:**
+```bash
+WORKWEAVE_ROOT=$(rwv resolve)
+if [ -z "$WORKWEAVE_ROOT" ] || [ ! -d "$WORKWEAVE_ROOT" ]; then
+  echo "FATAL: rwv resolve produced no usable workweave root ('$WORKWEAVE_ROOT')"
+  exit 1
+fi
+REPO_OWNER=$(echo "{{pr_repo}}" | cut -d/ -f1)
+REPO_NAME=$(echo  "{{pr_repo}}" | cut -d/ -f2)
+REPO_PATH="$WORKWEAVE_ROOT/github/$REPO_OWNER/$REPO_NAME"
+if [ ! -d "$REPO_PATH/.git" ] && [ ! -f "$REPO_PATH/.git" ]; then
+  echo "FATAL: no git repo at $REPO_PATH"
+  exit 1
+fi
+cd "$REPO_PATH"
+```
+
+**3. Fetch live PR payload; write scratch files.** These are the single
+source of truth for `apply-fix`:
+```bash
+SCRATCH_DIR=/tmp/upstream-followup-{{issue}}
+mkdir -p "$SCRATCH_DIR"
+
+gh pr view "{{pr_url}}" \\
+  --json number,state,reviewDecision,headRefName,baseRefName,updatedAt,statusCheckRollup,reviews,comments \\
+  > "$SCRATCH_DIR/pr.json"
+
+jq '.reviews // []'  "$SCRATCH_DIR/pr.json" > "$SCRATCH_DIR/reviews.json"
+jq '.comments // []' "$SCRATCH_DIR/pr.json" > "$SCRATCH_DIR/comments.json"
+jq '.statusCheckRollup // []' "$SCRATCH_DIR/pr.json" > "$SCRATCH_DIR/checks.json"
+```
+
+**4. For `ci-failure`, capture failing-check log tails.** Cap each run's
+log at the last 200 lines so `apply-fix` has a focused error signature
+rather than the full build output.
+```bash
+if [ "{{trigger_reason}}" = "ci-failure" ]; then
+  FAILING_RUN_IDS=$(jq -r '
+    [ .[] | select((.conclusion // "") == "FAILURE") | .detailsUrl // "" ]
+    | map(capture("/runs/(?<id>[0-9]+)") | .id)
+    | unique
+    | .[]
+  ' "$SCRATCH_DIR/checks.json" 2>/dev/null || true)
+
+  : > "$SCRATCH_DIR/failing-checks.log"
+  for RUN_ID in $FAILING_RUN_IDS; do
+    echo "=== run $RUN_ID ===" >> "$SCRATCH_DIR/failing-checks.log"
+    gh run view "$RUN_ID" --repo "{{pr_repo}}" --log-failed 2>/dev/null \\
+      | tail -200 >> "$SCRATCH_DIR/failing-checks.log" || true
+    echo >> "$SCRATCH_DIR/failing-checks.log"
+  done
+fi
+```
+
+**5. Save coordinates for downstream steps.**
+```bash
+cat > "$SCRATCH_DIR/env" <<EOF
+REPO_PATH=$REPO_PATH
+SCRATCH_DIR=$SCRATCH_DIR
+EOF
+```
+
+**Exit criteria:** `cd`'d into the per-bead workweave's target repo;
+scratch files at `$SCRATCH_DIR/` contain fresh PR JSON, reviews,
+comments, checks, and (for ci-failure) log tails.
+"""
+metadata = { "gc.continuation_group" = "upstream-followup", "gc.session_affinity" = "require" }
+
+[steps.retry]
+max_attempts = 3
+on_exhausted = "hard_fail"
+
+[[steps]]
+id = "checkout-pr-branch"
+title = "Fetch fork + checkout PR head branch at remote tip"
+needs = ["fetch-pr-state"]
+description = """
+The PR head lives on `{{fork_remote}}/{{pr_head_branch}}`. Fetch and
+check out the remote tip so the fixup commit lands on the exact
+commits the PR currently shows. Do not rebase or reset — preserve
+review history.
+
+Inherited workspace-setup left this repo on
+`<workweave>/{{base_branch}}`; this step overrides HEAD with the PR
+branch. That is compatible because the PR branch is the thing we're
+fixing up, and the workweave's ephemeral branch is irrelevant for a
+followup (no cross-repo lock commit, no refinery submission).
+
+```bash
+. /tmp/upstream-followup-{{issue}}/env
+cd "$REPO_PATH"
+
+if [ -n "$(git status --porcelain)" ]; then
+  echo "FATAL: dirty worktree at $REPO_PATH; cannot safely checkout PR branch"
+  git status --short
+  exit 1
+fi
+
+git fetch {{fork_remote}} {{pr_head_branch}} --prune
+git checkout -B {{pr_head_branch}} {{fork_remote}}/{{pr_head_branch}}
+
+PR_TIP_SHA=$(git rev-parse HEAD)
+echo "PR head: {{fork_remote}}/{{pr_head_branch}} @ $PR_TIP_SHA"
+echo "PR_TIP_SHA=$PR_TIP_SHA" >> /tmp/upstream-followup-{{issue}}/env
+```
+
+**Exit criteria:** local `{{pr_head_branch}}` matches
+`{{fork_remote}}/{{pr_head_branch}}`; `PR_TIP_SHA` captured.
+"""
+metadata = { "gc.continuation_group" = "upstream-followup", "gc.session_affinity" = "require" }
+
+[steps.retry]
+max_attempts = 3
+on_exhausted = "hard_fail"
+
+[[steps]]
+id = "apply-fix"
+title = "Author the fix commit based on review / CI feedback"
+needs = ["checkout-pr-branch"]
+description = """
+Read the scratch payload from `fetch-pr-state` and produce the minimum
+fix that addresses the feedback. This is the LLM-driven step — no
+deterministic recipe.
+
+**Inputs under `/tmp/upstream-followup-{{issue}}/`:**
+
+- `pr.json` — full PR view (state, reviewDecision, timestamps)
+- `reviews.json` — reviewer decisions + top-level review bodies
+- `comments.json` — issue-level comments on the PR thread
+- `checks.json` — statusCheckRollup array (check names + conclusions)
+- `failing-checks.log` — (ci-failure only) tail of failing check logs
+
+**Procedure:**
+
+1. `cat` the scratch files relevant to `{{trigger_reason}}`:
+   - `ci-failure` → `failing-checks.log` + `checks.json`
+   - `changes-requested` → `reviews.json` + `comments.json`
+2. Identify the specific issue. For CI, that's the error signature in
+   the log. For reviews, that's the reviewer's ask — if ambiguous or
+   "redesign this whole approach", STOP and mail mayor rather than
+   guessing.
+3. Make the minimum code change to address the issue. No drive-by
+   cleanups, no unrelated refactors — one commit, narrowly scoped.
+4. Commit with a `fixup!` message targeting the PR's first commit on
+   the branch so maintainer-squash collapses it cleanly:
+   ```bash
+   . /tmp/upstream-followup-{{issue}}/env
+   cd "$REPO_PATH"
+   TARGET_SHA=$(git log --format=%H "origin/{{pr_base_branch}}..HEAD" | tail -1)
+   TARGET_MSG=$(git log -1 --format=%s "$TARGET_SHA")
+   git add -A
+   git commit -m "fixup! $TARGET_MSG"
+   ```
+
+**Safety rails:**
+
+- If the review is ambiguous (reviewer asking a design question, or
+  "redesign this whole approach"), do NOT attempt a fix. Mail mayor
+  with the review text and exit non-zero. Mayor will decide whether
+  to re-sling with explicit guidance or redo the design.
+- Do NOT delete or rewrite existing commits on the branch. Only add.
+- Do NOT run `git rebase`, `git reset --hard`, or force-push. If the
+  fix requires history editing (rare — see design §4 exception),
+  mail mayor and exit.
+- Keep the diff minimal. One commit, no refactoring sprees.
+
+**Escalation shape:**
+```bash
+gc mail send mayor --notify -s "BLOCKED: followup on PR #{{pr_number}} needs human review" \\
+  -m "Trigger: {{trigger_reason}}. Bead: {{issue}}. Reason: <what was ambiguous>. Scratch payload preserved at $SCRATCH_DIR."
+exit 1
+```
+
+**Exit criteria:** exactly one new commit on top of `PR_TIP_SHA` with a
+`fixup!`-prefixed message; worktree clean; minimal diff.
+"""
+metadata = { "gc.continuation_group" = "upstream-followup", "gc.session_affinity" = "require" }
+
+[steps.retry]
+max_attempts = 1
+on_exhausted = "hard_fail"
+
+[[steps]]
+id = "run-tests"
+title = "make check against upstream-test-ref (integration + PR head + fix)"
+needs = ["apply-fix"]
+description = """
+Reuse the integration-branch pattern from `gastownhall-upstream`:
+rebuild `{{integration_remote}}:{{integration_branch}}` from
+`origin/{{pr_base_branch}}` with curated unmerged fixes, build a
+throwaway `upstream-test-ref` = integration + all PR commits (including
+the fixup just authored), run `make check`, restore the PR head branch.
+
+## Step 1: Save coordinates
+
+```bash
+. /tmp/upstream-followup-{{issue}}/env
+cd "$REPO_PATH"
+FEATURE_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+FEATURE_SHA=$(git rev-parse HEAD)
+echo "PR head + fixup: $FEATURE_BRANCH @ $FEATURE_SHA"
+```
+
+## Step 2: Rebuild integration (same logic as parent formula)
+
+```bash
+REFS_FILE="$GC_CITY_PATH/integration-refs.toml"
+git fetch origin {{pr_base_branch}} --quiet
+git fetch {{integration_remote}} {{integration_branch}} 2>/dev/null || true
+git checkout -B integration-rebuild origin/{{pr_base_branch}}
+
+python3 - "$REFS_FILE" "{{integration_remote}}" <<'PYEOF'
+import subprocess, sys
+
+refs_file = sys.argv[1]
+remote = sys.argv[2]
+
+try:
+    import tomllib
+    with open(refs_file, "rb") as f:
+        data = tomllib.load(f)
+except ImportError:
+    try:
+        import tomli as tomllib
+        with open(refs_file, "rb") as f:
+            data = tomllib.load(f)
+    except ImportError:
+        print("FATAL: tomllib/tomli not available (Python 3.11+ required)", file=sys.stderr)
+        sys.exit(1)
+
+entries = data.get("ref", [])
+if not entries:
+    print("integration-refs.toml has no entries — integration = origin/base_branch")
+    sys.exit(0)
+
+for entry in entries:
+    ref = entry["ref"]
+    pr_url = entry["source_pr_url"]
+
+    result = subprocess.run(
+        ["gh", "pr", "view", pr_url, "--json", "state", "-q", ".state"],
+        capture_output=True, text=True
+    )
+    state = result.stdout.strip()
+
+    if state == "MERGED":
+        print(f"dropped: {ref} (source PR merged: {pr_url})")
+        continue
+
+    print(f"cherry-picking: {ref} (PR state: {state})")
+    fetch = subprocess.run(["git", "fetch", remote, ref], capture_output=True, text=True)
+    if fetch.returncode != 0:
+        print(f"FATAL: failed to fetch {remote}/{ref}:\\n{fetch.stderr}", file=sys.stderr)
+        sys.exit(1)
+
+    pick = subprocess.run(
+        ["git", "cherry-pick", f"{remote}/{ref}"],
+        capture_output=True, text=True
+    )
+    if pick.returncode != 0:
+        print(f"FATAL: cherry-pick conflict for {ref}:\\n{pick.stderr}", file=sys.stderr)
+        sys.exit(2)
+
+    print(f"  ok: {ref}")
+
+print("Integration rebuild complete.")
+PYEOF
+REBUILD_RC=$?
+
+if [ "$REBUILD_RC" = "2" ]; then
+  git cherry-pick --abort 2>/dev/null || true
+  git checkout "$FEATURE_BRANCH"
+  git branch -D integration-rebuild 2>/dev/null || true
+  gc mail send mayor --notify -s "BLOCKED: integration cherry-pick conflict during followup {{issue}}" \\
+    -m "gastownhall-upstream-followup rebuild-integration: cherry-pick conflict. Resolve conflict or remove the failing entry from integration-refs.toml before retrying."
+  exit 1
+fi
+if [ "$REBUILD_RC" != "0" ]; then
+  git checkout "$FEATURE_BRANCH"
+  git branch -D integration-rebuild 2>/dev/null || true
+  exit 1
+fi
+
+git push --force-with-lease {{integration_remote}} integration-rebuild:{{integration_branch}}
+git checkout "$FEATURE_BRANCH"
+git branch -D integration-rebuild
+```
+
+## Step 3: Build throwaway test-ref = integration + all PR commits
+
+Cherry-pick every commit ahead of `origin/{{pr_base_branch}}` onto the
+fresh integration branch — this captures the full PR (original commits
+plus the new fixup).
+
+```bash
+git fetch {{integration_remote}} {{integration_branch}} --quiet
+git checkout -B upstream-test-ref {{integration_remote}}/{{integration_branch}}
+
+PR_COMMITS=$(git log --format=%H --reverse "origin/{{pr_base_branch}}..$FEATURE_SHA")
+for SHA in $PR_COMMITS; do
+  git cherry-pick "$SHA" || {
+    git cherry-pick --abort 2>/dev/null || true
+    git checkout "$FEATURE_BRANCH"
+    git branch -D upstream-test-ref 2>/dev/null || true
+    echo "FATAL: cherry-pick of $SHA failed onto integration — likely conflict with an integration ref"
+    gc mail send mayor --notify -s "BLOCKED: test-ref build failed for followup {{issue}}" \\
+      -m "Cherry-pick of PR commit $SHA onto integration branch failed. Review integration-refs.toml."
+    exit 1
+  }
+done
+```
+
+## Step 4: Run make check, then restore the PR head branch
+
+```bash
+make check
+TEST_RC=$?
+
+git checkout "$FEATURE_BRANCH"
+git branch -D upstream-test-ref
+
+POST_SHA=$(git rev-parse HEAD)
+if [ "$POST_SHA" != "$FEATURE_SHA" ]; then
+  echo "FATAL: HEAD moved after test run (expected $FEATURE_SHA, got $POST_SHA)"
+  exit 1
+fi
+if [ "$TEST_RC" != "0" ]; then
+  echo "FATAL: make check failed (rc=$TEST_RC) — fix did not resolve the failure, or introduced a new one"
+  gc mail send mayor --notify -s "BLOCKED: followup make check failed for {{issue}}" \\
+    -m "gastownhall-upstream-followup run-tests: make check failed after applying fix. PR: {{pr_url}}. Scratch: /tmp/upstream-followup-{{issue}}/. Operator review required before push."
+  exit 1
+fi
+```
+
+**Exit criteria:** `make check` passed against integration + all PR
+commits (including fixup); `{{pr_head_branch}}` restored with HEAD at
+`FEATURE_SHA`.
+"""
+metadata = { "gc.continuation_group" = "upstream-followup", "gc.session_affinity" = "require" }
+
+[steps.retry]
+max_attempts = 1
+on_exhausted = "hard_fail"
+
+[[steps]]
+id = "push"
+title = "Push fixup commit to fork (plain push, no force)"
+needs = ["run-tests"]
+description = """
+Push the PR head branch back to the fork. Plain push — no
+`--force-with-lease`. If the remote has moved (another party pushed
+to the branch between `checkout-pr-branch` and here), this fails
+and mayor is mailed. Automation does not reconcile diverged history.
+
+```bash
+. /tmp/upstream-followup-{{issue}}/env
+cd "$REPO_PATH"
+
+if ! git push {{fork_remote}} HEAD:{{pr_head_branch}}; then
+  gc mail send mayor --notify -s "BLOCKED: followup push rejected for {{issue}}" \\
+    -m "gastownhall-upstream-followup push: remote {{fork_remote}}/{{pr_head_branch}} has diverged. Another push landed between checkout and push. Manual reconciliation required before retrying. Fix commit is local on $REPO_PATH."
+  exit 1
+fi
+```
+
+**Exit criteria:** `{{fork_remote}}/{{pr_head_branch}}` contains the
+fixup commit; PR now shows one additional commit on top.
+"""
+metadata = { "gc.continuation_group" = "upstream-followup", "gc.session_affinity" = "require" }
+
+[steps.retry]
+max_attempts = 1
+on_exhausted = "hard_fail"
+
+[[steps]]
+id = "record"
+title = "Record followup outcome on bead, re-park via defer"
+needs = ["push"]
+description = """
+Write the followup outcome to bead metadata so the watcher can enforce
+the retry budget on the next tick, then re-defer the bead so the
+worker pool does not re-claim while the PR continues its review cycle.
+
+The watcher clears `pr_followup_inflight_molecule` itself (by detecting
+that the wisp molecule is closed). It also clears
+`pr_last_followup_outcome` when checks next transition to clean, so a
+future failure cycle can sling again.
+
+```bash
+. /tmp/upstream-followup-{{issue}}/env
+cd "$REPO_PATH"
+
+FIX_SHA=$(git rev-parse HEAD)
+NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+bd update {{issue}} \\
+  --set-metadata pr_last_followup_at="$NOW" \\
+  --set-metadata pr_last_followup_trigger_reason="{{trigger_reason}}" \\
+  --set-metadata pr_last_followup_outcome="pushed" \\
+  --set-metadata pr_last_followup_fix_sha="$FIX_SHA"
+
+bd update {{issue}} --notes "Followup ({{trigger_reason}}) pushed fixup $FIX_SHA to {{fork_remote}}/{{pr_head_branch}} at $NOW"
+
+rm -rf /tmp/upstream-followup-{{issue}}
+```
+
+**Re-park the bead.**
+
+The watcher re-opens the bead before slinging this formula so the
+followup molecule can run. Now that the followup has pushed, re-defer
+the bead so the worker pool's `bd ready` query stops considering it
+while the PR continues its review cycle. If CI fails again and a
+second followup cycle is needed, the watcher will re-open the bead
+(and its retry-budget check will gate against slinging a second
+followup unless operator-escalated).
+
+```bash
+bd defer {{issue}} --until="+90d" \\
+  --reason "Re-parked after followup push — watcher re-opens if another fix cycle is needed"
+```
+
+**Exit criteria:** bead carries fresh `pr_last_followup_*` metadata;
+bead re-deferred; scratch dir removed.
+"""
+metadata = { "gc.continuation_group" = "upstream-followup", "gc.session_affinity" = "require" }
+
+[steps.retry]
+max_attempts = 3
+on_exhausted = "hard_fail"
+
+[[steps]]
+id = "drain"
+title = "Signal completion (bead stays deferred for watcher)"
+needs = ["record"]
+description = """
+The followup is complete. The source bead stays deferred with
+`pending-upstream` and fresh `pr_last_followup_*` metadata. The next
+`gascity-upstream-status` tick will see the PR's `updatedAt` change
+(new commit on the head branch) and mail mayor with the updated state
+— if CI still fails, the watcher checks `pr_last_followup_outcome`
+and escalates to mayor instead of slinging a second followup (retry
+budget = 1).
+
+```bash
+gc runtime drain-ack
+```
+
+Do not run any other command after `drain-ack`.
+"""
+metadata = { "gc.continuation_group" = "upstream-followup", "gc.session_affinity" = "require" }
+
+[steps.retry]
+max_attempts = 1
+on_exhausted = "hard_fail"

@@ -1,0 +1,13 @@
+# gc-formulas — foundations formulas pack.
+#
+# Reusable formula pack for the foundations rig. Provides molecule
+# formulas for cross-repo work, refinery handoff, upstream tracking,
+# and docs refresh.
+#
+# Any project that lists `cwalv/gc-formulas` in its rwv.yaml can include
+# this pack from its city.toml without duplicating formula files.
+
+[pack]
+name = "gc-formulas"
+schema = 2
+description = "Foundations rig formulas (mol-weave-*, gastownhall-upstream-*, mol-docs-refresh)"

@@ -1,0 +1,720 @@
+description = """
+Upstream-submission lifecycle for external contributions to a gastownhall
+repo, driven from a foundations workweave. Extends `mol-weave-base` so
+the per-bead workweave lifecycle (workweave discovery / creation /
+rejection-aware resume) is inherited rather than re-implemented.
+
+Takes a work bead whose branch is already implemented and tested locally
+in the workweave's copy of the target repo. Validates the tree, runs
+`make check` safely against an integration+feature test-ref, pushes to
+the fork, opens a PR with a `{{kind}}(scope):` title, records PR
+URL/number + head/base branches on the bead, labels `pending-upstream`,
+and defers the bead as a park pattern. A sibling
+`gascity-upstream-status` order watches labeled beads and closes them
+on merge; if CI fails it slings `gastownhall-upstream-followup` to
+author a fixup!` commit.
+
+The design rationale for extending `mol-weave-base` (and the split
+between `mol-weave-base` / `mol-weave-do-work` / `mol-weave-work`) is
+captured in `docs/weave-formula-roles-refactor.md` (§1.4 "Prior art")
+in the foundations project (`cwalv/project-foundations`).
+
+Work happens in the per-bead workweave's copy of the target repo: the
+repo path is derived via `rwv resolve` + `github/{{upstream_owner}}/{{upstream_repo}}/`.
+`github/{{upstream_owner}}/{{upstream_repo}}/TESTING.md` is the
+authoritative source for test targets, env-isolation expectations, and
+regression-tier rules — `run-tests` reads it rather than duplicating.
+
+When `regression_required=true` (default), `run-tests` hard-fails if the
+diverging commits don't touch any test file. Picking the right tier
+(unit / testscript / integration / conformance / coordination) is the
+triage-phase job; this gate is only "is there any test?".
+
+## Integration branch pattern
+
+`{{integration_remote}}:{{integration_branch}}` is a curated fork branch:
+`origin/main` with critical unmerged fixes cherry-picked on top. The
+`rebuild-integration` step lazily rebuilds it at shipment time, so it is
+always fresh when used and never churns when unused.
+
+Tests run against a throwaway `upstream-test-ref` = integration + feature
+commit. The feature branch stays based on `origin/main`, so the PR diff
+is feature-only. The feature branch push and PR happen against the clean
+branch, not the test-ref.
+
+Add new entries to `$GC_CITY_PATH/integration-refs.toml` when a fix
+must be carried until its upstream PR merges. When a source PR merges,
+the formula logs "dropped: <ref> (source PR merged)" and skips the
+cherry-pick — trim the entry from the file to keep it tidy.
+
+## Variables
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `issue` | yes (inherited) | — | Bead ID being submitted upstream |
+| `base_branch` | no (inherited) | `main` | Upstream base branch |
+| `setup_command` | no (inherited) | `` | Weave-root setup; empty = skip |
+| `title` | yes | — | PR title summary (appended after `{{kind}}(scope):` prefix) |
+| `branch` | yes | — | Branch name on the fork |
+| `kind` | yes | — | `feat` or `fix` — drives PR title prefix |
+| `scope` | no | per kind | Commit scope; default `gc` for feat, empty for fix |
+| `body` | no | (generated) | PR body; empty means derive from bead |
+| `upstream_owner` | no | `gastownhall` | PR target owner |
+| `upstream_repo` | no | `gascity` | PR target repo |
+| `fork_remote` | no | `cwalv` | Git remote name for the fork push |
+| `regression_required` | no | `true` | Require a test file in the diff; `false` for docs-only |
+| `integration_remote` | no | `cwalv` | Git remote for the integration fork branch |
+| `integration_branch` | no | `integration` | Integration branch name (rebuilt lazily at shipment time) |
+"""
+formula = "gastownhall-upstream"
+extends = ["mol-weave-base"]
+version = 4
+contract = "graph.v2"
+
+[vars]
+[vars.title]
+description = "PR title summary, appended after the {{kind}}(scope): prefix"
+required = true
+
+[vars.branch]
+description = "Branch name on the fork (e.g. feat/fo-mhb6v-hooks-sync)"
+required = true
+
+[vars.kind]
+description = "Commit-message kind: 'feat' or 'fix'; drives PR title prefix"
+required = true
+
+[vars.scope]
+description = "Commit-message scope; empty produces '{{kind}}: ...'. Default per kind is injected at step time: 'gc' for feat, empty for fix."
+default = ""
+
+[vars.body]
+description = "Full PR body; empty means build a default from the bead"
+default = ""
+
+[vars.upstream_owner]
+description = "PR target owner (GitHub org/user)"
+default = "gastownhall"
+
+[vars.upstream_repo]
+description = "PR target repo (short name, not owner/name)"
+default = "gascity"
+
+[vars.fork_remote]
+description = "Git remote name for the fork push"
+default = "cwalv"
+
+[vars.regression_required]
+description = "If true, hard-fail when no test file is touched in the submission diff"
+default = "true"
+
+[vars.integration_remote]
+description = "Git remote name for the integration fork branch"
+default = "cwalv"
+
+[vars.integration_branch]
+description = "Integration branch on the fork: origin/main + curated unmerged fixes, rebuilt lazily at shipment time"
+default = "integration"
+
+[[steps]]
+id = "checkout-feature-branch"
+title = "Validate kind, resolve repo path, checkout feature branch from fork"
+needs = ["workspace-setup"]
+description = """
+Bridge inherited `workspace-setup` (which leaves per-repo worktrees on
+`<workweave>/<base>`) to the shipping steps (which expect HEAD to be
+the feature branch ahead of `origin/{{base_branch}}`). Validates
+`kind`, resolves the target repo path from the workweave, and checks
+out the feature branch from the fork if it isn't already local.
+
+**1. Validate kind:**
+```bash
+case "{{kind}}" in
+  feat|fix) : ;;
+  *) echo "FATAL: kind must be 'feat' or 'fix' (got '{{kind}}')"; exit 1 ;;
+esac
+```
+
+**2. Resolve repo path from the per-bead workweave.**
+
+After inherited `workspace-setup` runs, `rwv resolve` returns the
+per-bead workweave root. The target repo lives at
+`github/{{upstream_owner}}/{{upstream_repo}}/` inside it.
+```bash
+WORKWEAVE_ROOT=$(rwv resolve)
+if [ -z "$WORKWEAVE_ROOT" ] || [ ! -d "$WORKWEAVE_ROOT" ]; then
+  echo "FATAL: rwv resolve produced no usable workweave root ('$WORKWEAVE_ROOT')"
+  exit 1
+fi
+REPO_PATH="$WORKWEAVE_ROOT/github/{{upstream_owner}}/{{upstream_repo}}"
+if [ ! -d "$REPO_PATH/.git" ] && [ ! -f "$REPO_PATH/.git" ]; then
+  echo "FATAL: no git repo at $REPO_PATH (workweave missing this repo?)"
+  exit 1
+fi
+cd "$REPO_PATH"
+```
+
+**3. Checkout the feature branch.**
+
+Inherited workspace-setup left the repo on `<workweave>/{{base_branch}}`
+(the peer-workweave ephemeral branch). Shipment needs HEAD on
+`{{branch}}` (the fork branch). Two cases:
+
+- Feature branch already local → switch to it.
+- Feature branch only on the fork → fetch it and create the local
+  tracking branch.
+
+```bash
+git fetch {{fork_remote}} {{branch}} --prune 2>/dev/null || true
+if git show-ref --verify --quiet "refs/heads/{{branch}}"; then
+  git checkout {{branch}}
+else
+  git checkout -B {{branch}} "{{fork_remote}}/{{branch}}"
+fi
+pwd
+git rev-parse --abbrev-ref HEAD
+```
+
+**Exit criteria:** `cd`'d into the per-bead workweave's target-repo
+path; HEAD is on `{{branch}}`; `kind` validated.
+"""
+metadata = { "gc.continuation_group" = "upstream-submit", "gc.session_affinity" = "require" }
+
+[steps.retry]
+max_attempts = 3
+on_exhausted = "hard_fail"
+
+[[steps]]
+id = "validate-worktree"
+title = "Validate repo state (clean, ahead of base)"
+needs = ["checkout-feature-branch"]
+description = """
+Verify the repo is in a submittable state before any push or PR
+creation. Hard-fail if any check fails — these are preconditions, not
+transient issues.
+
+```bash
+REPO_PATH="$(rwv resolve)/github/{{upstream_owner}}/{{upstream_repo}}"
+cd "$REPO_PATH"
+
+# 1. Clean tree.
+if [ -n "$(git status --porcelain)" ]; then
+  echo "FATAL: dirty worktree; commit or stash first"
+  git status --short
+  exit 1
+fi
+
+# 2. Fetch latest to compare against origin.
+git fetch origin {{base_branch}} --prune
+
+# 3. Ahead of origin/{{base_branch}}.
+if ! git log "origin/{{base_branch}}..HEAD" --oneline | grep -q .; then
+  echo "FATAL: HEAD is not ahead of origin/{{base_branch}}; nothing to submit"
+  exit 1
+fi
+
+# 4. Log the commits that will ship.
+echo "Commits ahead of origin/{{base_branch}}:"
+git log --oneline "origin/{{base_branch}}..HEAD"
+```
+
+**Exit criteria:** repo is clean, HEAD is ahead of
+`origin/{{base_branch}}`, and the diverging commits have been logged.
+"""
+metadata = { "gc.continuation_group" = "upstream-submit", "gc.session_affinity" = "require" }
+
+[steps.retry]
+max_attempts = 1
+on_exhausted = "hard_fail"
+
+[[steps]]
+id = "rebuild-integration"
+title = "Rebuild cwalv:integration + build throwaway upstream-test-ref"
+needs = ["validate-worktree"]
+description = """
+Lazily rebuild `{{integration_remote}}:{{integration_branch}}` on top of
+`origin/{{base_branch}}` with curated unmerged fixes from
+`$GC_CITY_PATH/integration-refs.toml`, then build a throwaway
+`upstream-test-ref` = integration + feature commit for `make check`.
+The feature branch is untouched — push/PR use the clean branch.
+
+## Step 1: Save feature coordinates
+
+```bash
+REPO_PATH="$(rwv resolve)/github/{{upstream_owner}}/{{upstream_repo}}"
+cd "$REPO_PATH"
+FEATURE_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+FEATURE_SHA=$(git rev-parse HEAD)
+echo "Feature: $FEATURE_BRANCH @ $FEATURE_SHA"
+```
+
+## Step 2: Rebuild integration from origin/main + curated refs
+
+```bash
+REFS_FILE="$GC_CITY_PATH/integration-refs.toml"
+git fetch origin {{base_branch}} --quiet
+git fetch {{integration_remote}} {{integration_branch}} 2>/dev/null || true
+git checkout -B integration-rebuild origin/{{base_branch}}
+
+python3 - "$REFS_FILE" "{{integration_remote}}" <<'PYEOF'
+import subprocess, sys, os
+
+refs_file = sys.argv[1]
+remote = sys.argv[2]
+
+try:
+    import tomllib
+    with open(refs_file, "rb") as f:
+        data = tomllib.load(f)
+except ImportError:
+    try:
+        import tomli as tomllib
+        with open(refs_file, "rb") as f:
+            data = tomllib.load(f)
+    except ImportError:
+        print("FATAL: tomllib/tomli not available (Python 3.11+ required)", file=sys.stderr)
+        sys.exit(1)
+
+entries = data.get("ref", [])
+if not entries:
+    print("integration-refs.toml has no entries — integration = origin/base_branch")
+    sys.exit(0)
+
+for entry in entries:
+    ref = entry["ref"]
+    pr_url = entry["source_pr_url"]
+
+    result = subprocess.run(
+        ["gh", "pr", "view", pr_url, "--json", "state", "-q", ".state"],
+        capture_output=True, text=True
+    )
+    state = result.stdout.strip()
+
+    if state == "MERGED":
+        print(f"dropped: {ref} (source PR merged: {pr_url})")
+        continue
+
+    print(f"cherry-picking: {ref} (PR state: {state})")
+    fetch = subprocess.run(["git", "fetch", remote, ref], capture_output=True, text=True)
+    if fetch.returncode != 0:
+        print(f"FATAL: failed to fetch {remote}/{ref}:\\n{fetch.stderr}", file=sys.stderr)
+        sys.exit(1)
+
+    pick = subprocess.run(
+        ["git", "cherry-pick", f"{remote}/{ref}"],
+        capture_output=True, text=True
+    )
+    if pick.returncode != 0:
+        print(f"FATAL: cherry-pick conflict for {ref}:\\n{pick.stderr}", file=sys.stderr)
+        sys.exit(2)
+
+    print(f"  ok: {ref}")
+
+print("Integration rebuild complete.")
+PYEOF
+REBUILD_RC=$?
+
+if [ "$REBUILD_RC" = "2" ]; then
+  git cherry-pick --abort 2>/dev/null || true
+  git checkout "$FEATURE_BRANCH"
+  git branch -D integration-rebuild 2>/dev/null || true
+  gc mail send mayor --notify -s "BLOCKED: integration cherry-pick conflict for {{issue}}" \\
+    -m "gastownhall-upstream rebuild-integration: cherry-pick conflict in integration-refs.toml entry. Resolve conflict or remove the failing entry before retrying. When origin/main has moved far enough ahead, the fix is often to rebase the source PR branch onto current origin/main and force-push its fork branch."
+  exit 1
+fi
+if [ "$REBUILD_RC" != "0" ]; then
+  git checkout "$FEATURE_BRANCH"
+  git branch -D integration-rebuild 2>/dev/null || true
+  exit 1
+fi
+
+git push --force-with-lease {{integration_remote}} integration-rebuild:{{integration_branch}}
+git checkout "$FEATURE_BRANCH"
+git branch -D integration-rebuild
+```
+
+## Step 3: Build throwaway test-ref = integration + feature commit
+
+```bash
+git fetch {{integration_remote}} {{integration_branch}} --quiet
+git checkout -B upstream-test-ref {{integration_remote}}/{{integration_branch}}
+git cherry-pick "$FEATURE_SHA" || {
+  git cherry-pick --abort 2>/dev/null || true
+  git checkout "$FEATURE_BRANCH"
+  git branch -D upstream-test-ref 2>/dev/null || true
+  echo "FATAL: could not cherry-pick feature commit onto integration branch"
+  gc mail send mayor --notify -s "BLOCKED: test-ref build failed for {{issue}}" \\
+    -m "Cherry-pick of feature commit onto integration branch failed. The feature may conflict with an integration ref. Review integration-refs.toml."
+  exit 1
+}
+
+# Return to feature branch; save coordinates for run-tests
+git checkout "$FEATURE_BRANCH"
+echo "FEATURE_BRANCH=$FEATURE_BRANCH" > /tmp/upstream-integration-{{issue}}.env
+echo "FEATURE_SHA=$FEATURE_SHA" >> /tmp/upstream-integration-{{issue}}.env
+
+UPSTREAM_FULL="{{upstream_owner}}/{{upstream_repo}}"
+echo "UPSTREAM_FULL=$UPSTREAM_FULL" >> /tmp/upstream-integration-{{issue}}.env
+echo "Integration coordinates saved."
+```
+
+**Exit criteria:** `{{integration_remote}}:{{integration_branch}}` freshly pushed;
+`upstream-test-ref` local branch exists at integration + feature commit;
+feature branch checked out and clean. Coordinates in
+`/tmp/upstream-integration-{{issue}}.env`.
+"""
+metadata = { "gc.continuation_group" = "upstream-submit", "gc.session_affinity" = "require" }
+
+[steps.retry]
+max_attempts = 1
+on_exhausted = "hard_fail"
+
+[[steps]]
+id = "run-tests"
+title = "Regression-tier check + make check against upstream-test-ref"
+needs = ["rebuild-integration"]
+description = """
+Load coordinates from `rebuild-integration`, run the regression-tier
+check on the feature branch, then switch to `upstream-test-ref` for
+`make check`. Tests run against integration + feature commit; the feature
+branch is restored afterward.
+
+Surface TESTING.md first — do not improvise alternative test commands:
+```bash
+REPO_PATH="$(rwv resolve)/github/{{upstream_owner}}/{{upstream_repo}}"
+cd "$REPO_PATH"
+. /tmp/upstream-integration-{{issue}}.env
+if [ -f TESTING.md ]; then
+  cat TESTING.md | head -120
+else
+  echo "NOTE: no TESTING.md at $REPO_PATH — falling back to 'make check'"
+fi
+```
+
+## Regression-tier check (on feature branch)
+
+When `regression_required={{regression_required}}` is true, require that
+the diverging commits touch a test file. Picking the correct tier is
+the triage-phase job; this gate is "is there any test file?".
+
+```bash
+if [ "{{regression_required}}" = "true" ]; then
+  TEST_FILES_CHANGED=$(git diff --name-only "origin/{{base_branch}}..HEAD" \\
+    | grep -E '_test\\.go$|\\.txtar$|_test\\.py$|\\.test\\.ts$|\\.spec\\.ts$' || true)
+  if [ -z "$TEST_FILES_CHANGED" ]; then
+    echo "FATAL: no test files in the commits ahead of origin/{{base_branch}}"
+    echo "TESTING.md prescribes a regression test. Add one, or re-run with regression_required=false for docs-only contribs."
+    gc mail send mayor --notify -s "BLOCKED: submission {{issue}} missing regression test" \\
+      -m "gastownhall-upstream refusing to submit — no test file modified in the diff. Review TESTING.md and add the correct tier before retrying, or set regression_required=false if this is a docs-only contrib."
+    exit 1
+  fi
+  echo "Test files in submission:"
+  echo "$TEST_FILES_CHANGED"
+fi
+```
+
+## Run make check against upstream-test-ref (containerized)
+
+Tests run inside a CI-parity docker image built by
+`projects/foundations/scripts/upstream-build-image` — see
+`projects/foundations/upstream-container/README.md` for rationale.
+Host-side execution is out: the agent's env (GC_CITY_PATH, GC_DOLT_*,
+GC_ALIAS) diverges from a clean CI runner and silently shifts test
+outcomes. The container scrubs it by construction.
+
+Docker preflight first. Hard-fail if docker is missing — no host
+fallback; that fallback is what containerization exists to eliminate.
+
+```bash
+if ! command -v docker >/dev/null 2>&1; then
+  echo "FATAL: docker not found on host. gastownhall-upstream requires"
+  echo "       docker to run make check in a CI-parity environment."
+  gc mail send mayor --notify -s "BLOCKED: docker missing — containerized run-tests cannot run" \\
+    -m "Install docker per projects/foundations/upstream-container/README.md and retry {{issue}}. See fo-upstream-formula-containerize."
+  exit 1
+fi
+```
+
+Build the image (idempotent — cached by sha256 of gascity/deps.env +
+Dockerfile.upstream). First pour on a fresh host pays ~3 min; every
+subsequent pour hits the cache and retags `:latest` in milliseconds.
+
+```bash
+WORKWEAVE_ROOT="$(rwv resolve)"
+"$WORKWEAVE_ROOT/projects/foundations/scripts/upstream-build-image"
+```
+
+Switch to the throwaway test-ref, run tests in container, restore
+feature branch. The feature branch HEAD must not move.
+
+```bash
+git checkout upstream-test-ref
+"$WORKWEAVE_ROOT/projects/foundations/scripts/upstream-test-run"
+TEST_RC=$?
+
+git checkout "$FEATURE_BRANCH"
+git branch -D upstream-test-ref
+rm -f /tmp/upstream-integration-{{issue}}.env
+
+POST_SHA=$(git rev-parse HEAD)
+if [ "$POST_SHA" != "$FEATURE_SHA" ]; then
+  echo "FATAL: HEAD moved after test run (expected $FEATURE_SHA, got $POST_SHA)"
+  exit 1
+fi
+if [ "$TEST_RC" != "0" ]; then
+  echo "FATAL: make check failed (rc=$TEST_RC)"
+  exit 1
+fi
+```
+
+**Exit criteria:** regression test present when required; `make check`
+passed against upstream-test-ref (integration + feature commit) inside
+the docker container; feature branch restored and HEAD matches
+`FEATURE_SHA`.
+"""
+metadata = { "gc.continuation_group" = "upstream-submit", "gc.session_affinity" = "require" }
+
+[steps.retry]
+max_attempts = 1
+on_exhausted = "hard_fail"
+
+[[steps]]
+id = "push"
+title = "Push branch to fork (idempotent)"
+needs = ["run-tests"]
+description = """
+Push the local HEAD to `{{fork_remote}}/{{branch}}`. Idempotent: a push
+whose local HEAD matches the remote branch is a no-op.
+
+```bash
+REPO_PATH="$(rwv resolve)/github/{{upstream_owner}}/{{upstream_repo}}"
+cd "$REPO_PATH"
+
+git push {{fork_remote}} HEAD:{{branch}}
+```
+
+If `git push` rejects (rare — these branches are formula-owned),
+investigate before `--force-with-lease`; do not force-push reflexively.
+
+**Exit criteria:** `{{fork_remote}}/{{branch}}` contains HEAD.
+"""
+metadata = { "gc.continuation_group" = "upstream-submit", "gc.session_affinity" = "require" }
+
+[steps.retry]
+max_attempts = 3
+on_exhausted = "hard_fail"
+
+[[steps]]
+id = "open-pr"
+title = "Open PR (skip if one already exists)"
+needs = ["push"]
+description = """
+Open a PR against `{{upstream_owner}}/{{upstream_repo}}:{{base_branch}}`
+from `{{fork_remote}}:{{branch}}`. Skip cleanly if an open PR already
+exists for that head — this is the idempotency hinge.
+
+```bash
+REPO_PATH="$(rwv resolve)/github/{{upstream_owner}}/{{upstream_repo}}"
+cd "$REPO_PATH"
+
+UPSTREAM_FULL="{{upstream_owner}}/{{upstream_repo}}"
+
+# Derive GitHub username of the fork (usually the remote org)
+FORK_OWNER=$(git remote get-url {{fork_remote}} | sed -E 's#.*[:/]([^/]+)/[^/]+\\.git$#\\1#')
+
+EXISTING=$(gh pr list --repo "$UPSTREAM_FULL" --head "$FORK_OWNER:{{branch}}" --state open --json number,url 2>/dev/null)
+PR_COUNT=$(echo "$EXISTING" | jq 'length')
+
+if [ "$PR_COUNT" -gt 0 ]; then
+  PR_URL=$(echo "$EXISTING" | jq -r '.[0].url')
+  PR_NUMBER=$(echo "$EXISTING" | jq -r '.[0].number')
+  echo "Found existing open PR #$PR_NUMBER: $PR_URL — skipping create"
+else
+  # Scope default per kind: 'gc' for feat, empty for fix, overridden by var.
+  SCOPE="{{scope}}"
+  if [ -z "$SCOPE" ] && [ "{{kind}}" = "feat" ]; then
+    SCOPE="gc"
+  fi
+
+  # Build title prefix: {{kind}}(scope) or {{kind}}
+  if [ -n "$SCOPE" ]; then
+    TITLE_PREFIX="{{kind}}($SCOPE)"
+  else
+    TITLE_PREFIX="{{kind}}"
+  fi
+
+  # Build body: use provided var, else derive from bead
+  BODY="{{body}}"
+  if [ -z "$BODY" ]; then
+    BEAD_TITLE=$(bd show {{issue}} --json | jq -r '.title')
+    BEAD_DESC=$(bd show {{issue}} --json | jq -r '.description')
+    REGRESSION_NOTE=""
+    if [ "{{kind}}" = "fix" ] && [ "{{regression_required}}" = "true" ]; then
+      REGRESSION_NOTE=$(cat <<'EOF'
+
+
+## Regression test
+
+See the diff — the fix is paired with a test at the tier TESTING.md
+prescribes for this fix class.
+EOF
+)
+    fi
+    BODY=$(cat <<EOF
+## Summary
+
+$BEAD_TITLE
+
+Addresses foundations bead {{issue}}.
+
+## Detail
+
+$BEAD_DESC$REGRESSION_NOTE
+EOF
+)
+  fi
+
+  gh pr create \\
+    --repo "$UPSTREAM_FULL" \\
+    --base {{base_branch}} \\
+    --head "$FORK_OWNER:{{branch}}" \\
+    --title "$TITLE_PREFIX: {{title}}" \\
+    --body "$BODY"
+
+  # Re-query for the URL
+  EXISTING=$(gh pr list --repo "$UPSTREAM_FULL" --head "$FORK_OWNER:{{branch}}" --state open --json number,url)
+  PR_URL=$(echo "$EXISTING" | jq -r '.[0].url')
+  PR_NUMBER=$(echo "$EXISTING" | jq -r '.[0].number')
+fi
+
+# Stash for the next step
+echo "PR_URL=$PR_URL" > /tmp/upstream-submit-{{issue}}.env
+echo "PR_NUMBER=$PR_NUMBER" >> /tmp/upstream-submit-{{issue}}.env
+echo "UPSTREAM_FULL=$UPSTREAM_FULL" >> /tmp/upstream-submit-{{issue}}.env
+```
+
+**Exit criteria:** an open PR exists on `{{upstream_owner}}/{{upstream_repo}}`
+for `$FORK_OWNER:{{branch}}`; `$PR_URL` and `$PR_NUMBER` are captured
+for the label-and-record step.
+"""
+metadata = { "gc.continuation_group" = "upstream-submit", "gc.session_affinity" = "require" }
+
+[steps.retry]
+max_attempts = 3
+on_exhausted = "hard_fail"
+
+[[steps]]
+id = "label-and-record"
+title = "Label bead pending-upstream, record PR identity + head/base branches, park via defer"
+needs = ["open-pr"]
+description = """
+Write the PR identity onto the bead as structured metadata, add the
+`pending-upstream` label, and park the bead via `bd defer` so the
+foundations worker pool does not re-claim it while the PR is in
+review. This is the handoff point to the `gascity-upstream-status`
+watcher order.
+
+**Scope discipline (CRITICAL).** This PR is scoped to the single bead
+`{{issue}}`. Do NOT bundle unrelated fixes, drive-by cleanups, or
+incidental refactors into this submission. If you discovered something
+during implementation that needs fixing, that belongs on a separate
+bead and a separate PR. The watcher order reads the bead's PR
+metadata; any commits beyond the scoped change confuse reviewers and
+complicate the followup formula's fixup! targeting. Exception:
+scope-creep surfaced by the PR review itself (reviewer asks for an
+adjacent change) is handled via `gastownhall-upstream-followup` on
+top of the existing PR, not a widening of this commit's scope.
+
+**Do not close the bead.** Closure is the watcher's job — it runs when
+the PR merges, is closed unmerged, or reaches a terminal review state.
+Instead, the bead is deferred as a park pattern: it stays alive with
+its metadata and pending-upstream label, but the reconciler's `ready`
+query excludes deferred beads so worker pool scaling doesn't churn.
+The watcher explicitly includes `--status=open,in_progress,deferred`
+so it still picks up deferred beads for PR-state polling.
+
+```bash
+. /tmp/upstream-submit-{{issue}}.env
+
+bd update {{issue}} \\
+  --add-labels pending-upstream \\
+  --set-metadata pr_url="$PR_URL" \\
+  --set-metadata pr_number="$PR_NUMBER" \\
+  --set-metadata pr_repo="$UPSTREAM_FULL" \\
+  --set-metadata pr_head_branch="{{branch}}" \\
+  --set-metadata pr_base_branch="{{base_branch}}"
+
+bd update {{issue}} --notes "Submitted upstream: $PR_URL"
+
+# Verify label applied (some bd versions spell the flag differently)
+bd show {{issue}} | grep -i "pending-upstream" || {
+  echo "WARNING: pending-upstream label not visible on bead after update"
+  echo "Check 'bd help update' for the label flag spelling on this bd version"
+}
+
+rm -f /tmp/upstream-submit-{{issue}}.env
+```
+
+**Park pattern — defer the bead.**
+
+After recording the PR metadata and labeling, defer the bead so the
+reconciler's `bd ready` query (which excludes deferred status) stops
+considering it for worker pool scaling. The watcher order queries
+with `--status=open,in_progress,deferred` so it still sees the bead
+for PR-state polling. When the PR merges, the watcher closes the
+bead; when the PR is closed unmerged or goes into CHANGES_REQUESTED,
+the watcher mails mayor (who may re-open / re-sling).
+
+```bash
+bd defer {{issue}} --until="+90d" \\
+  --reason "Parked pending upstream PR $PR_URL — watcher manages lifecycle"
+```
+
+A long defer horizon is fine — the watcher will re-open the bead
+explicitly (see `gascity-upstream-status` followup logic) if a fix
+cycle is needed, ahead of the defer expiry. If the PR still sits at
+the expiry, the bead naturally surfaces again and mayor can decide
+whether to abandon it.
+
+**Exit criteria:** bead has PR metadata and `pending-upstream` label;
+bead is deferred (still open with status=deferred) rather than
+actively ready for worker-pool claim.
+
+**Escalation on label-flag mismatch:** if `--add-labels` is wrong on
+this bd version (try `--label`/`--labels`), the metadata is the
+load-bearing part — record it and mail mayor:
+```bash
+gc mail send mayor --notify -s "BLOCKED: bd label flag drift for {{issue}}" \\
+  -m "gastownhall-upstream couldn't apply pending-upstream via --add-labels. Verify flag spelling and update this formula."
+```
+"""
+metadata = { "gc.continuation_group" = "upstream-submit", "gc.session_affinity" = "require" }
+
+[steps.retry]
+max_attempts = 3
+on_exhausted = "hard_fail"
+
+[[steps]]
+id = "drain"
+title = "Signal completion (bead remains deferred for watcher)"
+needs = ["label-and-record"]
+description = """
+The submission is complete. The work bead stays deferred, carrying
+`pending-upstream` and the PR metadata. The sibling
+`gascity-upstream-status` order queries with
+`--status=open,in_progress,deferred` so deferred beads still surface
+for PR-state polling and the watcher handles closure on merge or
+followup-slinging on CI failure.
+
+Drain and exit:
+```bash
+gc runtime drain-ack
+```
+
+Do not run any other command after `drain-ack`.
+"""
+metadata = { "gc.continuation_group" = "upstream-submit", "gc.session_affinity" = "require" }
+
+[steps.retry]
+max_attempts = 1
+on_exhausted = "hard_fail"

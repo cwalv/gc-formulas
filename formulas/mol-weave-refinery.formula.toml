@@ -1,0 +1,563 @@
+description = """
+Weave-refinery patrol loop. Adapts mol-refinery-patrol for the workweave
+model: the refinery lands cross-repo work published by mol-weave-work
+by rebasing and merging every touched ephemeral branch, then locking
+and pushing a coherent cross-repo snapshot.
+
+Poured as a wisp on startup:
+
+  bd mol wisp mol-weave-refinery --var target_branch=main
+  bd update $WISP --assignee=$GC_AGENT
+
+Each wisp is ONE iteration: check for work, merge one cross-repo bead,
+pour the next iteration. On crash, re-read this description and
+determine where you left off from context (git state, bead state,
+last action).
+
+## Execution context
+
+**The refinery runs in the rig workweave** (rig=workweave model: the rig
+is configured to point at a long-lived workweave, e.g.
+`.workweaves/foundations--fo-city`). The merge target is the rig
+workweave's branches, NOT the primary weave's. Primary is reached
+later via operator-driven `rwv sync` if/when desired.
+
+(Peer workers don't need a `pre_start` either — mol-weave-work creates
+a per-bead workweave in its first step. The refinery distinguishes
+itself by running directly in the rig workweave with no per-bead
+workweave to create.)
+
+## Concurrency
+
+One refinery per rig. The rig workweave's working tree is serial — two
+refineries would race on shared branches. If parallel refineries ever
+become necessary, pre-commit locks are cheaper than per-repo.
+
+## Work-bead contract
+
+A bead handed to this refinery by mol-weave-work carries:
+
+- `metadata.workweave` — the peer workweave name (used for branch prefix `<workweave>/<target>`)
+- `metadata.work_dir` — absolute path to the peer workweave directory on disk
+- `metadata.target` — the target branch per repo (typically main)
+- `metadata.repos_touched` — comma-separated paths relative to weave root
+- `metadata.lock_sha` — optional, SHA of the project's lock commit
+- `metadata.merge_strategy` — `direct` (default) or `mr`/`pr`
+
+Branch naming is deterministic: for every path in `repos_touched`, the
+branch is `<workweave>/<target>`.
+
+## Merge strategies
+
+- **direct** — per-repo `git merge --ff-only` then push; final `rwv lock`
+  + commit + push in `projects/<project>/`. Bead closed on success.
+- **mr** / **pr** — per-repo `gh pr create` against `<target>`; record
+  URLs on the bead and close it (publication is the terminal handoff).
+
+---
+
+# Iteration Manual
+
+Run these 8 phases in order. Each one's bash is the literal contract —
+run the commands as written. On any failure mid-iteration that the
+phase says rejects: set rejection_reason, sling back to worker pool,
+pour next wisp, burn this one, exit. Don't investigate; don't ask the
+operator.
+
+## 1. Context check + mail
+
+**1a. Memory pressure check (FIRST — before any work):**
+```bash
+RSS=$(ps -o rss= -p $$ | tr -d ' ')
+RSS_MB=$((RSS / 1024))
+```
+If RSS > 1500 MB or context feels heavy:
+```bash
+gc runtime request-restart
+```
+This blocks; the controller kills and respawns the session. The new
+session re-reads this description and resumes from bead/git state.
+
+**1b. Verify execution context (rig workweave, not primary):**
+```bash
+WEAVE=$(rwv resolve)
+cd "$WEAVE"
+if [ ! -f .rwv-workweave ]; then
+  echo "FATAL: refinery must run in the rig workweave, not the primary weave"
+  gc mail send mayor -s "ESCALATION: refinery in wrong context" \\
+    -m "Refinery session spawned in $WEAVE which is the primary weave. Refinery should run in the rig's workweave (e.g. .workweaves/foundations--fo-city)."
+  gc runtime drain-ack
+  exit 1
+fi
+```
+
+`$WEAVE` is the rig workweave path — used as the integration target
+throughout this iteration. Primary is reached via operator-driven
+`rwv sync` later.
+
+**1c. Check mail:**
+```bash
+gc mail inbox
+```
+Archive messages you've handled. Note context for upcoming merges
+(priority overrides, hold requests, etc.).
+
+## 2. Find work
+
+Search the refinery pool for ready work routed to me, then claim it.
+The refinery is itself a pool agent — work arrives via
+`gc.routed_to=<my-pool>` with assignee empty (the same shape as the
+worker pool), not via direct assignment. `bd update --claim` flips the
+bead to in_progress with `assignee=$GC_AGENT` so concurrent refineries
+don't double-claim.
+
+```bash
+WORK=$(bd ready --metadata-field gc.routed_to={{rig_name}}/{{binding_prefix}}refinery --unassigned \\
+  --exclude-type=epic --limit=1 --json | jq -r '.[0].id // empty')
+if [ -n "$WORK" ]; then
+  # Use $GC_ALIAS, not --claim. --claim uses BEADS_ACTOR which is set
+  # to the session name (e.g. refinery-gc-xxxx), but the spawn-decision
+  # predicate uses pool/alias matching. If we leave a session-name
+  # assignee on the bead and drain mid-iteration, the reconciler can't
+  # see the bead as demand anymore (it's "assigned") and the bead gets
+  # orphaned. $GC_ALIAS (e.g. foundations/refinery-1) is alias-stable
+  # across session restarts.
+  bd update "$WORK" --status=in_progress --assignee="$GC_ALIAS"
+fi
+```
+
+If found, confirm the bead is a weave-work handoff:
+```bash
+META=$(bd show "$WORK" --json | jq -r '.[0].metadata // .metadata')
+WORKWEAVE=$(echo "$META" | jq -r '.workweave // empty')
+WORKWEAVE_DIR=$(echo "$META" | jq -r '.work_dir // empty')
+REPOS=$(echo "$META" | jq -r '.repos_touched // empty')
+TARGET=$(echo "$META" | jq -r '.target // "{{target_branch}}"')
+STRATEGY=$(echo "$META" | jq -r '.merge_strategy // "direct"')
+if [ "$STRATEGY" = "pr" ]; then STRATEGY="mr"; fi
+
+if [ -z "$WORKWEAVE" ] || [ -z "$REPOS" ]; then
+  gc mail send mayor -s "ESCALATION: refinery bead missing metadata" \\
+    -m "Bead $WORK lacks workweave or repos_touched. Fix or reassign."
+  bd update "$WORK" --status=open --assignee="" --set-metadata gc.routed_to=""
+  WORK=""
+fi
+```
+
+Validate `metadata.work_dir` via rwv CLI — no path reconstruction:
+```bash
+if [ -n "$WORK" ]; then
+  REJECTED=""
+  REJECT_REASON=""
+  if [ -z "$WORKWEAVE_DIR" ]; then
+    REJECTED="yes"; REJECT_REASON="bead missing metadata.work_dir"
+  fi
+  if [ -z "$REJECTED" ] && [ ! -d "$WORKWEAVE_DIR" ]; then
+    REJECTED="yes"
+    REJECT_REASON="metadata.work_dir=$WORKWEAVE_DIR doesn't exist (workweave deleted?)"
+  fi
+  if [ -z "$REJECTED" ]; then
+    WW_RECOGNIZED=$(cd "$WORKWEAVE_DIR" 2>/dev/null && rwv | awk '$1 == "Workweave:" { print $2 }')
+    [ "$WW_RECOGNIZED" = "$WORKWEAVE_DIR" ] || {
+      REJECTED="yes"
+      REJECT_REASON="rwv doesn't see $WORKWEAVE_DIR as a workweave (got: $WW_RECOGNIZED)"
+    }
+  fi
+  if [ -z "$REJECTED" ]; then
+    PROJECT=$(rwv | awk '$1 == "Project:" { print $2 }')
+    rwv workweave "$PROJECT" list 2>/dev/null | grep -qx "$WORKWEAVE" || {
+      REJECTED="yes"
+      REJECT_REASON="workweave $WORKWEAVE not registered with rwv for project $PROJECT"
+    }
+  fi
+  if [ -n "$REJECTED" ]; then
+    bd update "$WORK" --status=open \\
+      --set-metadata rejection_reason="$REJECT_REASON"
+    gc sling {{rig_name}}/{{binding_prefix}}worker-sonnet "$WORK"
+    WORK=""
+  fi
+fi
+```
+
+If validation fails, reject the bead back to the worker pool with a
+clear reason. `gc sling` clears assignee and sets the routing metadata
+the worker pool claims by; status is reopened explicitly so the worker
+sees fresh work, not in-progress.
+
+If NO work found: wait for assignment:
+```bash
+SEQ=$(gc events --seq)
+gc events --watch --type=bead.updated --after=$SEQ --timeout {{event_timeout}}s
+```
+On event or timeout: re-check. Double the timeout up to 300s between
+retries. **Do not advance to step 3 until you have a work bead with the
+required metadata populated.** If event-watch repeatedly returns no
+new work after several rounds, drain (`gc runtime drain-ack`) — the
+controller respawns when work arrives.
+
+## 3. Rebase the peer workweave onto rig
+
+Fetch current remote state for each touched repo, run lock precondition
+checks, then advance the peer workweave onto the rig workweave's current
+tip via `rwv sync $WEAVE --strategy=rebase` (run from within the peer
+workweave; $WEAVE is the rig workweave path). On any failure (lock-dirty,
+fetch error, or sync conflict), reject the bead back to the pool.
+
+```bash
+IFS=',' read -ra REPOS_TOUCHED <<< "$REPOS"
+REJECTED=""
+REJECT_REASON=""
+
+# Fetch first so rwv check --locked sees current remote state.
+for p in "${REPOS_TOUCHED[@]}"; do
+  p="${p// /}"
+  [ -z "$p" ] && continue
+  (cd "$WEAVE/$p" && git fetch origin) || {
+    REJECTED="yes"; REJECT_REASON="fetch failed: $p"; break
+  }
+done
+
+# Precondition: both sides clean per their committed locks
+if [ -z "$REJECTED" ]; then
+  rwv check --locked || {
+    REJECTED="yes"; REJECT_REASON="rig workweave lock-dirty"
+  }
+fi
+if [ -z "$REJECTED" ]; then
+  (cd "$WORKWEAVE_DIR" && rwv check --locked) || {
+    REJECTED="yes"; REJECT_REASON="peer workweave $WORKWEAVE lock-dirty"
+  }
+fi
+
+# Workspace-side: advance the peer workweave onto the rig workweave's tip.
+if [ -z "$REJECTED" ]; then
+  cd "$WORKWEAVE_DIR"
+  if ! rwv sync "$WEAVE" --strategy=rebase; then
+    rwv abort
+    REJECTED="yes"
+    REJECT_REASON="rwv sync rig-workweave→peer-workweave conflict (peer intact for worker to resume)"
+  fi
+  cd "$WEAVE"
+fi
+```
+
+**If `$REJECTED` is set:** put the bead back, pour next wisp, burn this one, exit:
+```bash
+if [ -n "$REJECTED" ]; then
+  bd update "$WORK" --status=open \\
+    --set-metadata rejection_reason="$REJECT_REASON"
+  gc sling {{rig_name}}/{{binding_prefix}}worker-sonnet "$WORK"
+  NEXT=$(bd mol wisp mol-weave-refinery --json | jq -r '.new_epic_id')
+  bd update "$NEXT" --assignee=$GC_AGENT
+  THIS_WISP=$(bd list --assignee="$GC_ALIAS" --type=epic --json | jq -r '.[] | select(.title=="mol-weave-refinery" and (.status=="open" or .status=="in_progress")) | .id' | head -1)
+[ -n "$THIS_WISP" ] && bd mol burn "$THIS_WISP" --force
+  exit 0
+fi
+```
+`rwv abort` already cleaned up any partial sync state. Don't delete
+origin branches on reject — the worker needs them to resume.
+
+**On success:** the peer workweave's branches are now rebased onto the
+rig workweave's tip; rig workweave is unchanged. No temp branches were
+created.
+
+## 4. Run quality checks
+
+Quality checks run in the workweave (post-rebase state), not primary.
+Tests here see the rebased commits before any primary-side change:
+```bash
+cd "$WORKWEAVE_DIR"
+{{setup_command}}
+{{typecheck_command}}
+{{lint_command}}
+{{build_command}}
+```
+
+If `run_tests = "true"`:
+```bash
+{{test_command}}
+```
+If `run_tests = "false"`: skip tests entirely.
+
+Track results: which checks ran, pass/fail, specific failures.
+
+## 5. Handle failures
+
+If all checks PASSED: proceed to step 6 (merge-push).
+
+If any check FAILED:
+
+**5a. Diagnose: branch regression vs pre-existing on target?**
+Reset each repo to origin/<target>, re-run the failing check. If it
+still fails, it's pre-existing. If it passes, the branch caused it.
+
+**5b. If branch caused it — reject back to worker pool:**
+```bash
+rwv abort
+bd update "$WORK" --status=open \\
+  --set-metadata rejection_reason="<failure summary>"
+gc sling {{rig_name}}/{{binding_prefix}}worker-sonnet "$WORK"
+NEXT=$(bd mol wisp mol-weave-refinery --json | jq -r '.new_epic_id')
+bd update "$NEXT" --assignee=$GC_AGENT
+THIS_WISP=$(bd list --assignee="$GC_ALIAS" --type=epic --json | jq -r '.[] | select(.title=="mol-weave-refinery" and (.status=="open" or .status=="in_progress")) | .id' | head -1)
+[ -n "$THIS_WISP" ] && bd mol burn "$THIS_WISP" --force
+exit 0
+```
+Do NOT delete branches on origin — the worker needs them to resume.
+
+**5c. If pre-existing on target — file a bead and proceed:**
+```bash
+bd list --type=bug --status=open --search "<failure summary>" | head
+# If no duplicate:
+bd create --type=bug --priority=1 --title="Pre-existing failure: <summary>"
+```
+Proceed with merge (failure is not caused by this branch).
+
+**GATE**: cannot merge without all checks passing OR pre-existing bug
+filed/found. **FORBIDDEN**: writing code to fix failures. You are a
+merge processor.
+
+## 6. Merge or publish PRs
+
+Behavior depends on `$STRATEGY` (read in step 2).
+
+### STRATEGY = "direct" (default)
+
+The peer workweave is rebased onto the rig workweave's tip (step 3),
+so the rig workweave is now a strict ancestor of the peer workweave.
+Fast-forward the rig workweave onto the peer workweave's tip, then
+push each repo.
+
+**6a. Precondition: rig workweave lock-clean.**
+```bash
+cd "$WEAVE"
+if ! rwv check --locked; then
+  echo "FATAL: rig workweave lock-dirty after peer-workweave rebase succeeded; bug"
+  exit 1
+fi
+```
+
+**6b. Fast-forward the rig workweave onto the peer workweave's tip.**
+```bash
+if ! rwv sync "$WORKWEAVE_DIR" --strategy=ff; then
+  echo "FATAL: ff failed after peer-workweave rebase succeeded; bug or race"
+  exit 1
+fi
+```
+
+**6c. Push each repo to origin.**
+```bash
+IFS=',' read -ra REPOS_TOUCHED <<< "$REPOS"
+MERGED_SHAS=""
+for p in "${REPOS_TOUCHED[@]}"; do
+  p="${p// /}"
+  [ -z "$p" ] && continue
+  cd "$WEAVE/$p"
+  git push origin "HEAD:$TARGET"
+  git fetch origin
+  [ "$(git rev-parse "$TARGET")" = "$(git rev-parse "origin/$TARGET")" ] || {
+    echo "PUSH FAILED for $p"; exit 1
+  }
+  MERGED_SHAS="$MERGED_SHAS$p=$(git rev-parse --short HEAD),"
+  cd "$WEAVE"
+done
+```
+If any push fails: STOP, debug, retry. Don't continue with partial pushes.
+
+**6d. Snapshot the cross-repo state with rwv lock.**
+```bash
+cd "$WEAVE"
+rwv lock
+```
+Every repo is now on `origin/<target>`; the lock records the exact SHAs.
+
+**6e. Commit rwv.lock in the project repo (if it changed).**
+```bash
+PROJECT=$(cat .rwv-active)
+cd "projects/$PROJECT"
+if [ -n "$(git status --porcelain rwv.lock)" ]; then
+  git add rwv.lock
+  git commit -m "lock: post-merge snapshot ($WORK)"
+  git push origin HEAD:$TARGET 2>/dev/null || true
+fi
+cd "$WEAVE"
+```
+
+**6f. Cleanup: delete (optionally) origin ephemeral branches.**
+```bash
+for p in "${REPOS_TOUCHED[@]}"; do
+  p="${p// /}"
+  [ -z "$p" ] && continue
+  if [ "{{delete_merged_branches}}" = "true" ]; then
+    cd "$WEAVE/$p"
+    git push origin --delete "$WORKWEAVE/$TARGET" 2>/dev/null || true
+    cd "$WEAVE"
+  fi
+done
+```
+
+**6g. Record results and close the bead.**
+```bash
+MERGED_SHAS="${MERGED_SHAS%,}"
+bd update "$WORK" \\
+  --set-metadata merge_result=merged \\
+  --set-metadata merged_shas="$MERGED_SHAS" \\
+  --set-metadata merged_target="$TARGET"
+bd close "$WORK" --reason "Merged to $TARGET across ${#REPOS_TOUCHED[@]} repos"
+```
+
+### STRATEGY = "mr" (or "pr")
+
+The refinery publishes a pull request per touched repo and treats PR
+publication as the terminal handoff. No direct landing.
+
+**6a'. Push each rebased branch back to origin.**
+```bash
+PR_URLS=""
+for p in "${REPOS_TOUCHED[@]}"; do
+  p="${p// /}"
+  [ -z "$p" ] && continue
+  cd "$WEAVE/$p"
+  git push origin "HEAD:$WORKWEAVE/$TARGET" --force-with-lease
+  cd "$WEAVE"
+done
+```
+
+**6b'. Create or discover a PR per repo.**
+```bash
+ISSUE_TITLE=$(bd show "$WORK" --json | jq -r '.[0].title // .title')
+for p in "${REPOS_TOUCHED[@]}"; do
+  p="${p// /}"
+  [ -z "$p" ] && continue
+  cd "$WEAVE/$p"
+  PR_BODY=$(cat <<EOF
+## Summary
+
+Automated pull request published by the weave refinery.
+
+- Issue: $WORK
+- Workweave: $WORKWEAVE
+- Repo: $p
+- Target: $TARGET
+EOF
+)
+  PR_URL=$(gh pr create --base "$TARGET" --head "$WORKWEAVE/$TARGET" \\
+    --title "$ISSUE_TITLE ($WORK) — $p" --body "$PR_BODY" 2>/dev/null || true)
+  if [ -z "$PR_URL" ]; then
+    PR_URL=$(gh pr view "$WORKWEAVE/$TARGET" --json url -q '.url')
+  fi
+  [ -z "$PR_URL" ] && { echo "PR MISSING for $p"; exit 1; }
+  PR_URLS="$PR_URLS$p=$PR_URL,"
+  cd "$WEAVE"
+done
+```
+
+**6c'. Record PRs and close the bead.**
+```bash
+PR_URLS="${PR_URLS%,}"
+bd update "$WORK" \\
+  --set-metadata merge_result=pull_request \\
+  --set-metadata pr_urls="$PR_URLS" \\
+  --set-metadata merged_target="$TARGET"
+bd close "$WORK" --reason "Pull requests ready: $PR_URLS"
+```
+Do NOT delete origin branches — PRs need them.
+
+### STRATEGY = anything else
+
+STOP. Escalate:
+```bash
+gc mail send mayor -s "ESCALATION: unsupported merge_strategy=$STRATEGY" \\
+  -m "Work bead: $WORK; workweave: $WORKWEAVE; repos: $REPOS; target: $TARGET. This refinery supports direct and mr/pr only."
+```
+Do NOT close the bead or delete branches.
+
+**GATE:** `direct` requires every per-repo push to verify. `mr` requires
+every per-repo PR URL to verify. Bead closure only happens after the
+selected handoff is fully confirmed.
+
+## 7. Patrol summary
+
+Summarize this patrol cycle for the audit trail. Lives in the wisp's
+closing reason; the next session finds it via `bd list --type=wisp
+--status=closed --limit=5`.
+
+Include:
+- Bead merged or PR'd (ID, title)
+- Workweave name, target branch
+- Repos touched (count + list)
+- Test results (pass/fail, which checks ran)
+- Bugs filed (IDs) if pre-existing failures were tracked
+- Rejections (if the bead was rejected back to pool)
+- Any escalations sent
+
+If the cycle ended early (conflict rejection, no work found), note
+why and the state left behind.
+
+## 8. Next iteration
+
+**8a. Tear down the worker's peer workweave (success path only):**
+```bash
+if [ -n "$WORKWEAVE" ]; then
+  rwv workweave foundations delete "$WORKWEAVE" || \\
+    echo "WARN: workweave teardown failed for $WORKWEAVE — manual cleanup may be needed"
+fi
+```
+Rejections exit before this step (`exit 0` in steps 3 and 5b), so this
+only runs on successful merge or PR publication.
+
+**8b. Pour next iteration:**
+```bash
+NEXT=$(bd mol wisp mol-weave-refinery --json | jq -r '.new_epic_id')
+bd update "$NEXT" --assignee=$GC_AGENT
+```
+
+**8c. Burn this wisp:**
+```bash
+THIS_WISP=$(bd list --assignee="$GC_ALIAS" --type=epic --json | jq -r '.[] | select(.title=="mol-weave-refinery" and (.status=="open" or .status=="in_progress")) | .id' | head -1)
+[ -n "$THIS_WISP" ] && bd mol burn "$THIS_WISP" --force
+```
+
+The new wisp is ready — re-read this description to begin again.
+
+The loop only exits when the controller kills the session (drain / OOM /
+context restart). There is no terminal state for the refinery."""
+formula = "mol-weave-refinery"
+version = 1
+
+[vars]
+[vars.run_tests]
+description = "Whether to run tests before merging"
+default = "true"
+
+[vars.setup_command]
+description = "Workspace-root setup/install command. Empty = skip."
+default = ""
+
+[vars.typecheck_command]
+description = "Workspace-root typecheck. Empty = skip."
+default = ""
+
+[vars.lint_command]
+description = "Workspace-root lint. Empty = skip."
+default = ""
+
+[vars.test_command]
+description = "Workspace-root tests (if run_tests=true). Empty = skip."
+default = ""
+
+[vars.build_command]
+description = "Workspace-root build. Empty = skip."
+default = ""
+
+[vars.target_branch]
+description = "Default target branch when bead metadata.target is missing"
+default = "main"
+
+[vars.delete_merged_branches]
+description = "Whether to delete ephemeral branches on origin after merge"
+default = "true"
+
+[vars.event_timeout]
+description = "Seconds to wait for events before re-checking (exponential backoff, cap 300s)"
+default = "30"
