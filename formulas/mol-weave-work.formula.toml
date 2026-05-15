@@ -98,7 +98,6 @@ metadata = { "gc.kind" = "scope", "gc.scope_name" = "worker-body", "gc.scope_rol
 [[steps]]
 id = "workspace-setup"
 title = "Create or resume per-bead workweave"
-assignee = "{{rig_name}}/worker"
 description = """
 Workweave name == bead-id.
 
@@ -125,7 +124,7 @@ if [ -n "$REJECTION" ]; then
 fi
 ```
 """
-metadata = { "gc.scope_ref" = "body", "gc.scope_role" = "setup", "gc.on_fail" = "abort_scope", "gc.continuation_group" = "worker", "gc.session_affinity" = "require" }
+metadata = { "gc.run_target" = "{{rig_name}}/worker", "gc.scope_ref" = "body", "gc.scope_role" = "setup", "gc.on_fail" = "abort_scope", "gc.continuation_group" = "worker", "gc.session_affinity" = "require" }
 
 [steps.retry]
 max_attempts = 3
@@ -136,7 +135,6 @@ on_exhausted = "hard_fail"
 id = "preflight-tests"
 title = "Verify base state passes checks"
 needs = ["workspace-setup"]
-assignee = "{{rig_name}}/worker"
 description = """
 Confirm the workspace is healthy before implementing. Failure means the
 rig is broken -- abort_scope; cleanup preserves the workweave for
@@ -155,7 +153,7 @@ cd "$WEAVE_ROOT/.workweaves/$WORKSPACE_NAME--{{issue}}"
 {{test_command}}
 ```
 """
-metadata = { "gc.scope_ref" = "body", "gc.scope_role" = "member", "gc.on_fail" = "abort_scope", "gc.continuation_group" = "worker", "gc.session_affinity" = "require" }
+metadata = { "gc.run_target" = "{{rig_name}}/worker", "gc.scope_ref" = "body", "gc.scope_role" = "member", "gc.on_fail" = "abort_scope", "gc.continuation_group" = "worker", "gc.session_affinity" = "require" }
 
 [steps.retry]
 max_attempts = 3
@@ -166,7 +164,6 @@ on_exhausted = "hard_fail"
 id = "implement"
 title = "Implement the work"
 needs = ["preflight-tests"]
-assignee = "{{rig_name}}/worker"
 description = """
 Read `bd show {{issue}}` for the spec. Edit files; commit per repo with
 descriptive messages.
@@ -184,7 +181,7 @@ bd show {{issue}}
 # ... edit code, commit per repo ...
 ```
 """
-metadata = { "gc.scope_ref" = "body", "gc.scope_role" = "member", "gc.on_fail" = "abort_scope", "gc.continuation_group" = "worker", "gc.session_affinity" = "require" }
+metadata = { "gc.run_target" = "{{rig_name}}/worker", "gc.scope_ref" = "body", "gc.scope_role" = "member", "gc.on_fail" = "abort_scope", "gc.continuation_group" = "worker", "gc.session_affinity" = "require" }
 
 [steps.retry]
 max_attempts = 3
@@ -195,7 +192,6 @@ on_exhausted = "hard_fail"
 id = "self-review"
 title = "Verify implementation; hard-fail on residue"
 needs = ["implement"]
-assignee = "{{rig_name}}/worker"
 description = """
 Re-run quality checks. Hard-fail on uncommitted state -- no autocommit
 fallback.
@@ -227,7 +223,7 @@ done
 [ -z "$DIRTY" ] || exit 1
 ```
 """
-metadata = { "gc.scope_ref" = "body", "gc.scope_role" = "member", "gc.on_fail" = "abort_scope", "gc.continuation_group" = "worker", "gc.session_affinity" = "require" }
+metadata = { "gc.run_target" = "{{rig_name}}/worker", "gc.scope_ref" = "body", "gc.scope_role" = "member", "gc.on_fail" = "abort_scope", "gc.continuation_group" = "worker", "gc.session_affinity" = "require" }
 
 [steps.retry]
 max_attempts = 3
@@ -238,7 +234,6 @@ on_exhausted = "hard_fail"
 id = "merge"
 title = "Refinery merge (script + judgment, bias toward rejection)"
 needs = ["self-review"]
-assignee = "{{rig_name}}/refinery"
 description = """
 Refinery acquires the rig-merge-mutex, invokes the deterministic merge
 script (the script is the agent's tool), applies judgment with bias
@@ -287,7 +282,7 @@ bd update "$MUTEX_ID" --assignee=
 exit 0
 ```
 """
-metadata = { "gc.scope_ref" = "body", "gc.scope_role" = "member", "gc.on_fail" = "abort_scope", "gc.continuation_group" = "refinery" }
+metadata = { "gc.run_target" = "{{rig_name}}/refinery", "gc.scope_ref" = "body", "gc.scope_role" = "member", "gc.on_fail" = "abort_scope", "gc.continuation_group" = "refinery" }
 
 [steps.retry]
 max_attempts = 1
@@ -298,7 +293,6 @@ on_exhausted = "hard_fail"
 id = "cleanup"
 title = "Tear down workweave only on confirmed success"
 needs = ["body"]
-assignee = "{{rig_name}}/worker"
 description = """
 Workweave deletion only when the work bead is closed. Reject and
 mid-body abort both preserve the workweave for resume / inspection.
@@ -319,7 +313,7 @@ else
 fi
 ```
 """
-metadata = { "gc.kind" = "cleanup", "gc.scope_role" = "teardown" }
+metadata = { "gc.run_target" = "{{rig_name}}/worker", "gc.kind" = "cleanup", "gc.scope_role" = "teardown" }
 
 [steps.retry]
 max_attempts = 1
