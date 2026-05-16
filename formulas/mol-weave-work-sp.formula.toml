@@ -1,15 +1,20 @@
 description = """
-Worker -> refinery cross-repo landing flow.
+Worker -> rig landing flow (single-pool variant).
 
-Per-bead workweave (named by bead-id), try/finally cleanup, per-step
-routing for worker -> refinery handoff.
+Per-bead workweave (named by bead-id), try/finally cleanup. All steps run
+in the same worker session — including the merge step. No separate refinery
+pool. Use this where cross-pool worker/refinery routing isn't required.
+
+For the cross-pool design (separate refinery pool, fresh-session judgment),
+see mol-weave-work. That formula depends on fo-ssqqw substrate work to
+instantiate correctly; mol-weave-work-sp is the production-viable interim.
 
 ## Vars
 
 | Var               | Default        | Description |
 |-------------------|----------------|-------------|
 | issue             | (required)     | The work bead ID |
-| rig_name          | foundations    | Substituted into routing targets ({{rig_name}}/worker, {{rig_name}}/refinery) |
+| rig_name          | foundations    | Sling target ({{rig_name}}/worker) |
 | project_name      | foundations    | rwv project name (e.g., foundations, foundations-test) |
 | base_branch       | main           | Per-repo base branch the workweave is cut from |
 | setup_command     | ""             | Workspace-root setup; empty = skip |
@@ -24,11 +29,19 @@ routing for worker -> refinery handoff.
 - A bead labeled `rig-merge-mutex` of type `mutex` exists in this rig's bd.
 - `projects/{{project_name}}/orders/scripts/refinery-step.sh` is executable.
 
+## Concurrency notes
+
+The merge step is load-bearing on the rig-merge-mutex: with single-pool,
+multiple worker sessions can run concurrent molecules and all want to
+write to the same rig. The mutex serializes merges across them. Stale-
+mutex recovery still depends on fo-q0giv (orphan-recovery dog with mutex
+reaping) — that's a pre-production dependency.
+
 ## Cleanup contract
 
 `cleanup` runs after `body` reaches terminal state, regardless of outcome:
-- work bead closed (refinery merged)     -> delete per-bead workweave
-- work bead reopened (refinery rejected) -> preserve workweave for resume
+- work bead closed (merge succeeded)     -> delete per-bead workweave
+- work bead reopened (merge rejected)    -> preserve workweave for resume
 - work bead in_progress (mid-body abort) -> preserve workweave for inspection
 
 ## Path derivation
@@ -42,12 +55,9 @@ bead-id, no metadata read):
   WORKSPACE_NAME="${WORKSPACE_NAME%%--*}"
   WORKWEAVE_DIR="$WEAVE_ROOT/.workweaves/$WORKSPACE_NAME--{{issue}}"
 """
-formula = "mol-weave-work"
-version = 3
+formula = "mol-weave-work-sp"
+version = 1
 contract = "graph.v2"
-# Materialize each step as a bead so refinery handoff + cleanup tracking
-# work via bead lifecycle (vs. inline-read steps that have no DB presence).
-pour = true
 
 [vars]
 [vars.issue]
@@ -55,7 +65,7 @@ description = "The work bead ID assigned to this molecule"
 required = true
 
 [vars.rig_name]
-description = "Rig name; substituted into routing targets"
+description = "Rig name; substituted into sling target"
 default = "foundations"
 
 [vars.project_name]
@@ -97,7 +107,7 @@ Either way, cleanup runs.
 """
 metadata = { "gc.kind" = "scope", "gc.scope_name" = "worker-body", "gc.scope_role" = "body" }
 
-# === workspace-setup (worker pool) ===
+# === workspace-setup ===
 [[steps]]
 id = "workspace-setup"
 title = "Create or resume per-bead workweave"
@@ -127,13 +137,13 @@ if [ -n "$REJECTION" ]; then
 fi
 ```
 """
-metadata = { "gc.run_target" = "{{rig_name}}/worker", "gc.scope_ref" = "body", "gc.scope_role" = "setup", "gc.on_fail" = "abort_scope", "gc.continuation_group" = "worker", "gc.session_affinity" = "require" }
+metadata = { "gc.scope_ref" = "body", "gc.scope_role" = "setup", "gc.on_fail" = "abort_scope", "gc.continuation_group" = "worker", "gc.session_affinity" = "require" }
 
 [steps.retry]
 max_attempts = 3
 on_exhausted = "hard_fail"
 
-# === preflight-tests (worker pool) ===
+# === preflight-tests ===
 [[steps]]
 id = "preflight-tests"
 title = "Verify base state passes checks"
@@ -156,13 +166,13 @@ cd "$WEAVE_ROOT/.workweaves/$WORKSPACE_NAME--{{issue}}"
 {{test_command}}
 ```
 """
-metadata = { "gc.run_target" = "{{rig_name}}/worker", "gc.scope_ref" = "body", "gc.scope_role" = "member", "gc.on_fail" = "abort_scope", "gc.continuation_group" = "worker", "gc.session_affinity" = "require" }
+metadata = { "gc.scope_ref" = "body", "gc.scope_role" = "member", "gc.on_fail" = "abort_scope", "gc.continuation_group" = "worker", "gc.session_affinity" = "require" }
 
 [steps.retry]
 max_attempts = 3
 on_exhausted = "hard_fail"
 
-# === implement (worker pool) ===
+# === implement ===
 [[steps]]
 id = "implement"
 title = "Implement the work"
@@ -184,13 +194,13 @@ bd show {{issue}}
 # ... edit code, commit per repo ...
 ```
 """
-metadata = { "gc.run_target" = "{{rig_name}}/worker", "gc.scope_ref" = "body", "gc.scope_role" = "member", "gc.on_fail" = "abort_scope", "gc.continuation_group" = "worker", "gc.session_affinity" = "require" }
+metadata = { "gc.scope_ref" = "body", "gc.scope_role" = "member", "gc.on_fail" = "abort_scope", "gc.continuation_group" = "worker", "gc.session_affinity" = "require" }
 
 [steps.retry]
 max_attempts = 3
 on_exhausted = "hard_fail"
 
-# === self-review (worker pool) ===
+# === self-review ===
 [[steps]]
 id = "self-review"
 title = "Verify implementation; hard-fail on residue"
@@ -226,21 +236,22 @@ done
 [ -z "$DIRTY" ] || exit 1
 ```
 """
-metadata = { "gc.run_target" = "{{rig_name}}/worker", "gc.scope_ref" = "body", "gc.scope_role" = "member", "gc.on_fail" = "abort_scope", "gc.continuation_group" = "worker", "gc.session_affinity" = "require" }
+metadata = { "gc.scope_ref" = "body", "gc.scope_role" = "member", "gc.on_fail" = "abort_scope", "gc.continuation_group" = "worker", "gc.session_affinity" = "require" }
 
 [steps.retry]
 max_attempts = 3
 on_exhausted = "hard_fail"
 
-# === merge (refinery pool) -- judgment-bearing ===
+# === merge -- judgment-bearing, runs in the same worker session ===
 [[steps]]
 id = "merge"
-title = "Refinery merge (script + judgment, bias toward rejection)"
+title = "Merge with bias toward rejection (single-pool: same session that did the work)"
 needs = ["self-review"]
 description = """
-Refinery acquires the rig-merge-mutex, invokes the deterministic merge
-script (the script is the agent's tool), applies judgment with bias
-toward rejection. See the refinery prompt for the judgment contract.
+Same session that did the work now serves as the merger. Switch hats:
+apply judgment with bias toward rejection (you wrote it; that's a
+confirmation-bias hazard). Invoke the deterministic merge script as a
+tool; reject on any structural concern the script can't see.
 
 Rejection writes status + metadata + assignee in a SINGLE atomic
 `bd update`; do not use `gc sling` for the state transition. Reject is
@@ -255,11 +266,20 @@ WORKSPACE_NAME=$(basename "$RIG_WEAVE")
 WORKSPACE_NAME="${WORKSPACE_NAME%%--*}"
 PEER_WEAVE="$WEAVE_ROOT/.workweaves/$WORKSPACE_NAME--$WORK"
 
-# 1. Acquire mutex (label lookup so the same formula works across rigs).
-MUTEX_ID=$(bd list --label=rig-merge-mutex --type=mutex --status=open --json \\
-           | jq -r '.[0].id // empty')
+# 1. Acquire mutex with retry. Lookup by label (no --status filter so we
+#    find the bead even when held). Wait up to ~150s for a holder to
+#    release. Stale-mutex recovery is fo-q0giv's job.
+MUTEX_ID=$(bd list --label=rig-merge-mutex --type=mutex --json | jq -r '.[0].id // empty')
 [ -z "$MUTEX_ID" ] && { echo "FAIL: no rig-merge-mutex bead"; exit 1; }
-bd update "$MUTEX_ID" --claim
+attempts=0
+until bd update "$MUTEX_ID" --claim 2>/dev/null; do
+  attempts=$((attempts+1))
+  if [ "$attempts" -ge 30 ]; then
+    echo "FAIL: could not acquire rig-merge-mutex after 30 retries"
+    exit 1
+  fi
+  sleep 5
+done
 
 # 2. Invoke deterministic script.
 RESULT_JSON=$(mktemp)
@@ -285,7 +305,7 @@ bd update "$MUTEX_ID" --assignee=
 exit 0
 ```
 """
-metadata = { "gc.run_target" = "{{rig_name}}/refinery", "gc.scope_ref" = "body", "gc.scope_role" = "member", "gc.on_fail" = "abort_scope", "gc.continuation_group" = "refinery" }
+metadata = { "gc.scope_ref" = "body", "gc.scope_role" = "member", "gc.on_fail" = "abort_scope", "gc.continuation_group" = "worker", "gc.session_affinity" = "require" }
 
 [steps.retry]
 max_attempts = 1
@@ -316,7 +336,7 @@ else
 fi
 ```
 """
-metadata = { "gc.run_target" = "{{rig_name}}/worker", "gc.kind" = "cleanup", "gc.scope_role" = "teardown" }
+metadata = { "gc.kind" = "cleanup", "gc.scope_role" = "teardown" }
 
 [steps.retry]
 max_attempts = 1
