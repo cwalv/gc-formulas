@@ -308,7 +308,7 @@ WORKSPACE_NAME="${WORKSPACE_NAME%%--*}"
 WORK_STATUS=$(bd show {{issue}} --json | jq -r '.[0].status')
 
 if [ "$WORK_STATUS" = "closed" ]; then
-  cd "$WEAVE_ROOT"
+  cd "$RIG_WEAVE"
   rwv workweave {{project_name}} delete "{{issue}}" || \\
     echo "WARN: workweave teardown failed for {{issue}}"
 else
