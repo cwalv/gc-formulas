@@ -27,7 +27,10 @@ instantiate correctly; mol-weave-work-sp is the production-viable interim.
 
 - city.toml `[daemon] formula_v2 = true`.
 - A bead labeled `rig-merge-mutex` of type `mutex` exists in this rig's bd.
-- `projects/{{project_name}}/orders/scripts/refinery-step.sh` is executable.
+- `projects/foundations/orders/scripts/refinery-step.sh` is executable
+  (canonical script location; reachable regardless of the rig's active
+  project so long as the rig's workweave has a projects/foundations
+  symlink or worktree).
 
 ## Concurrency notes
 
@@ -50,10 +53,10 @@ Each body step re-derives the per-bead workweave path (workweave name ==
 bead-id, no metadata read):
 
   RIG_WEAVE=$(rwv resolve)
-  WEAVE_ROOT="$(dirname "$(dirname "$RIG_WEAVE")")"
+  WORKWEAVES_DIR="$(dirname "$RIG_WEAVE")"
   WORKSPACE_NAME=$(basename "$RIG_WEAVE")
   WORKSPACE_NAME="${WORKSPACE_NAME%%--*}"
-  WORKWEAVE_DIR="$WEAVE_ROOT/.workweaves/$WORKSPACE_NAME--{{issue}}"
+  WORKWEAVE_DIR="$WORKWEAVES_DIR/$WORKSPACE_NAME--{{issue}}"
 """
 formula = "mol-weave-work-sp"
 version = 1
@@ -119,10 +122,10 @@ it and decide how to bring the workweave forward before continuing.
 
 ```bash
 RIG_WEAVE=$(rwv resolve)
-WEAVE_ROOT="$(dirname "$(dirname "$RIG_WEAVE")")"
+WORKWEAVES_DIR="$(dirname "$RIG_WEAVE")"
 WORKSPACE_NAME=$(basename "$RIG_WEAVE")
 WORKSPACE_NAME="${WORKSPACE_NAME%%--*}"
-WORKWEAVE_DIR="$WEAVE_ROOT/.workweaves/$WORKSPACE_NAME--{{issue}}"
+WORKWEAVE_DIR="$WORKWEAVES_DIR/$WORKSPACE_NAME--{{issue}}"
 
 if [ ! -d "$WORKWEAVE_DIR" ]; then
   cd "$RIG_WEAVE"
@@ -155,10 +158,10 @@ inspection.
 
 ```bash
 RIG_WEAVE=$(rwv resolve)
-WEAVE_ROOT="$(dirname "$(dirname "$RIG_WEAVE")")"
+WORKWEAVES_DIR="$(dirname "$RIG_WEAVE")"
 WORKSPACE_NAME=$(basename "$RIG_WEAVE")
 WORKSPACE_NAME="${WORKSPACE_NAME%%--*}"
-cd "$WEAVE_ROOT/.workweaves/$WORKSPACE_NAME--{{issue}}"
+cd "$WORKWEAVES_DIR/$WORKSPACE_NAME--{{issue}}"
 
 {{setup_command}}
 {{typecheck_command}}
@@ -185,10 +188,10 @@ DO NOT include the issue ID in commit messages.
 
 ```bash
 RIG_WEAVE=$(rwv resolve)
-WEAVE_ROOT="$(dirname "$(dirname "$RIG_WEAVE")")"
+WORKWEAVES_DIR="$(dirname "$RIG_WEAVE")"
 WORKSPACE_NAME=$(basename "$RIG_WEAVE")
 WORKSPACE_NAME="${WORKSPACE_NAME%%--*}"
-cd "$WEAVE_ROOT/.workweaves/$WORKSPACE_NAME--{{issue}}"
+cd "$WORKWEAVES_DIR/$WORKSPACE_NAME--{{issue}}"
 
 bd show {{issue}}
 # ... edit code, commit per repo ...
@@ -211,10 +214,10 @@ fallback.
 
 ```bash
 RIG_WEAVE=$(rwv resolve)
-WEAVE_ROOT="$(dirname "$(dirname "$RIG_WEAVE")")"
+WORKWEAVES_DIR="$(dirname "$RIG_WEAVE")"
 WORKSPACE_NAME=$(basename "$RIG_WEAVE")
 WORKSPACE_NAME="${WORKSPACE_NAME%%--*}"
-cd "$WEAVE_ROOT/.workweaves/$WORKSPACE_NAME--{{issue}}"
+cd "$WORKWEAVES_DIR/$WORKSPACE_NAME--{{issue}}"
 
 {{setup_command}}
 {{typecheck_command}}
@@ -261,10 +264,10 @@ aborts and cleanup preserves the workweave.
 ```bash
 WORK="{{issue}}"
 RIG_WEAVE=$(rwv resolve)
-WEAVE_ROOT="$(dirname "$(dirname "$RIG_WEAVE")")"
+WORKWEAVES_DIR="$(dirname "$RIG_WEAVE")"
 WORKSPACE_NAME=$(basename "$RIG_WEAVE")
 WORKSPACE_NAME="${WORKSPACE_NAME%%--*}"
-PEER_WEAVE="$WEAVE_ROOT/.workweaves/$WORKSPACE_NAME--$WORK"
+PEER_WEAVE="$WORKWEAVES_DIR/$WORKSPACE_NAME--$WORK"
 
 # 1. Acquire mutex with retry. Lookup by label (no --status filter so we
 #    find the bead even when held). Wait up to ~150s for a holder to
@@ -286,7 +289,7 @@ RESULT_JSON=$(mktemp)
 WORK="$WORK" RIG_WEAVE="$RIG_WEAVE" PEER_WEAVE="$PEER_WEAVE" \\
   PROJECT="{{project_name}}" TEST_CMD="{{test_command}}" \\
   STRUCTURED_OUTPUT="$RESULT_JSON" \\
-  "$RIG_WEAVE/projects/{{project_name}}/orders/scripts/refinery-step.sh"
+  "$RIG_WEAVE/projects/foundations/orders/scripts/refinery-step.sh"
 
 # 3. Agent applies judgment. On ACCEPT:
 #       bd close "$WORK" --reason "merged: <summary>"
@@ -322,7 +325,7 @@ mid-body abort both preserve the workweave for resume / inspection.
 
 ```bash
 RIG_WEAVE=$(rwv resolve)
-WEAVE_ROOT="$(dirname "$(dirname "$RIG_WEAVE")")"
+WORKWEAVES_DIR="$(dirname "$RIG_WEAVE")"
 WORKSPACE_NAME=$(basename "$RIG_WEAVE")
 WORKSPACE_NAME="${WORKSPACE_NAME%%--*}"
 WORK_STATUS=$(bd show {{issue}} --json | jq -r '.[0].status')

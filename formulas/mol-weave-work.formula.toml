@@ -37,10 +37,10 @@ Each body step re-derives the per-bead workweave path (workweave name ==
 bead-id, no metadata read):
 
   RIG_WEAVE=$(rwv resolve)
-  WEAVE_ROOT="$(dirname "$(dirname "$RIG_WEAVE")")"
+  WORKWEAVES_DIR="$(dirname "$RIG_WEAVE")"
   WORKSPACE_NAME=$(basename "$RIG_WEAVE")
   WORKSPACE_NAME="${WORKSPACE_NAME%%--*}"
-  WORKWEAVE_DIR="$WEAVE_ROOT/.workweaves/$WORKSPACE_NAME--{{issue}}"
+  WORKWEAVE_DIR="$WORKWEAVES_DIR/$WORKSPACE_NAME--{{issue}}"
 """
 formula = "mol-weave-work"
 version = 3
@@ -109,10 +109,10 @@ it and decide how to bring the workweave forward before continuing.
 
 ```bash
 RIG_WEAVE=$(rwv resolve)
-WEAVE_ROOT="$(dirname "$(dirname "$RIG_WEAVE")")"
+WORKWEAVES_DIR="$(dirname "$RIG_WEAVE")"
 WORKSPACE_NAME=$(basename "$RIG_WEAVE")
 WORKSPACE_NAME="${WORKSPACE_NAME%%--*}"
-WORKWEAVE_DIR="$WEAVE_ROOT/.workweaves/$WORKSPACE_NAME--{{issue}}"
+WORKWEAVE_DIR="$WORKWEAVES_DIR/$WORKSPACE_NAME--{{issue}}"
 
 if [ ! -d "$WORKWEAVE_DIR" ]; then
   cd "$RIG_WEAVE"
@@ -145,10 +145,10 @@ inspection.
 
 ```bash
 RIG_WEAVE=$(rwv resolve)
-WEAVE_ROOT="$(dirname "$(dirname "$RIG_WEAVE")")"
+WORKWEAVES_DIR="$(dirname "$RIG_WEAVE")"
 WORKSPACE_NAME=$(basename "$RIG_WEAVE")
 WORKSPACE_NAME="${WORKSPACE_NAME%%--*}"
-cd "$WEAVE_ROOT/.workweaves/$WORKSPACE_NAME--{{issue}}"
+cd "$WORKWEAVES_DIR/$WORKSPACE_NAME--{{issue}}"
 
 {{setup_command}}
 {{typecheck_command}}
@@ -175,10 +175,10 @@ DO NOT include the issue ID in commit messages.
 
 ```bash
 RIG_WEAVE=$(rwv resolve)
-WEAVE_ROOT="$(dirname "$(dirname "$RIG_WEAVE")")"
+WORKWEAVES_DIR="$(dirname "$RIG_WEAVE")"
 WORKSPACE_NAME=$(basename "$RIG_WEAVE")
 WORKSPACE_NAME="${WORKSPACE_NAME%%--*}"
-cd "$WEAVE_ROOT/.workweaves/$WORKSPACE_NAME--{{issue}}"
+cd "$WORKWEAVES_DIR/$WORKSPACE_NAME--{{issue}}"
 
 bd show {{issue}}
 # ... edit code, commit per repo ...
@@ -201,10 +201,10 @@ fallback.
 
 ```bash
 RIG_WEAVE=$(rwv resolve)
-WEAVE_ROOT="$(dirname "$(dirname "$RIG_WEAVE")")"
+WORKWEAVES_DIR="$(dirname "$RIG_WEAVE")"
 WORKSPACE_NAME=$(basename "$RIG_WEAVE")
 WORKSPACE_NAME="${WORKSPACE_NAME%%--*}"
-cd "$WEAVE_ROOT/.workweaves/$WORKSPACE_NAME--{{issue}}"
+cd "$WORKWEAVES_DIR/$WORKSPACE_NAME--{{issue}}"
 
 {{setup_command}}
 {{typecheck_command}}
@@ -250,10 +250,10 @@ aborts and cleanup preserves the workweave.
 ```bash
 WORK="{{issue}}"
 RIG_WEAVE=$(rwv resolve)
-WEAVE_ROOT="$(dirname "$(dirname "$RIG_WEAVE")")"
+WORKWEAVES_DIR="$(dirname "$RIG_WEAVE")"
 WORKSPACE_NAME=$(basename "$RIG_WEAVE")
 WORKSPACE_NAME="${WORKSPACE_NAME%%--*}"
-PEER_WEAVE="$WEAVE_ROOT/.workweaves/$WORKSPACE_NAME--$WORK"
+PEER_WEAVE="$WORKWEAVES_DIR/$WORKSPACE_NAME--$WORK"
 
 # 1. Acquire mutex (label lookup so the same formula works across rigs).
 MUTEX_ID=$(bd list --label=rig-merge-mutex --type=mutex --status=open --json \\
@@ -302,7 +302,7 @@ mid-body abort both preserve the workweave for resume / inspection.
 
 ```bash
 RIG_WEAVE=$(rwv resolve)
-WEAVE_ROOT="$(dirname "$(dirname "$RIG_WEAVE")")"
+WORKWEAVES_DIR="$(dirname "$RIG_WEAVE")"
 WORKSPACE_NAME=$(basename "$RIG_WEAVE")
 WORKSPACE_NAME="${WORKSPACE_NAME%%--*}"
 WORK_STATUS=$(bd show {{issue}} --json | jq -r '.[0].status')
