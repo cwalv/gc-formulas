@@ -3,3 +3,6 @@
 # Static test fixtures (e.g. self-test-*.json) are tracked and should not be
 # matched by this pattern.
 fixtures/[0-9]*-expected.json
+
+# ntm binary pre-built via assets/build-ntm.sh — not committed (size, platform-specific)
+assets/ntm

@@ -67,6 +67,14 @@ RUN curl -fsSL \
     && chmod +x /usr/local/bin/dolt \
     && rm -rf /tmp/dolt.tar.gz /tmp/dolt-linux-amd64
 
+# ntm binary — pre-built from foundations-weave source via
+# validation-pack/assets/build-ntm.sh (GOWORK=off CGO_ENABLED=0 go build).
+# Pre-built rather than inline so the docker build context stays small
+# (just gc-formulas/) and we avoid the Go toolchain + ntm dependency
+# graph (chromedp, bubbletea, etc.) on every rebuild.
+COPY validation-pack/assets/ntm /usr/local/bin/ntm
+RUN chmod +x /usr/local/bin/ntm
+
 WORKDIR /home/agent
 
 # Build context is the pack root (../), so the validation-pack/ prefix resolves.
