@@ -23,6 +23,13 @@ in order A then B then C."""
 formula = "prompt-chaining"
 version = 1
 
+# Materialize step children even when instantiated via `bd mol wisp`. Wisps default
+# to root-only (per bd c459812e, 2026-03-02 — see scenario-01-call-chain.md). The
+# validation pack runs scenarios ephemerally (container is destroyed after each
+# scenario), so wisp is the right semantic fit, but we need pour=true here for the
+# step beads to be materialized under it.
+pour = true
+
 [vars]
 [vars.task_a]
 description = "Description of the work for step A — the first bead in the chain"
