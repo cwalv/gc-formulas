@@ -2,9 +2,12 @@
 # pack root (..) so the Dockerfile's `COPY validation-pack/ ...` resolves.
 services:
   validation:
-    build:
-      context: ..
-      dockerfile: validation-pack/Dockerfile
+    # Pinned to a fixed image tag so parallel `docker compose -p <name> run`
+    # invocations across different project names all share the same image
+    # instead of building a per-project copy (which silently cached stale code).
+    # Build the image manually with:
+    #   docker build -f validation-pack/Dockerfile -t validation-pack:latest ..
+    image: validation-pack:latest
     user: "1000:1000"
     volumes:
       # Host credentials mounted read-only at a staging path. entrypoint.sh

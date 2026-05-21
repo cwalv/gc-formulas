@@ -77,7 +77,7 @@ git config --local user.email "agent@validation-pack.local" 2>/dev/null || true
 # ---------------------------------------------------------------------------
 # 2. Pour the formula — creates persistent beads with proper blocker deps
 # ---------------------------------------------------------------------------
-# bd mol pour (not wisp) for the same reason as scenario 01: pour creates
+# bd mol wisp (not wisp) for the same reason as scenario 01: pour creates
 # persistent beads that `bd ready` treats with proper blocker semantics.
 # Ephemerals under wisp (even with --include-ephemeral) do NOT enforce
 # blocker deps — all beads appear ready simultaneously, defeating the
@@ -96,7 +96,7 @@ TASK_TEMPLATE="Generate a one-line haiku about a primary color. Each slice cover
 
 echo "[${SCENARIO_ID}] pouring formula sectioning..."
 
-WISP_JSON="$(bd mol pour sectioning \
+WISP_JSON="$(bd mol wisp sectioning \
     --var task_template="${TASK_TEMPLATE}" \
     --var slice_count=3 \
     --var assignee=implementer \

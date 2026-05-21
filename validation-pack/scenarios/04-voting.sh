@@ -78,7 +78,7 @@ git config --local user.email "agent@validation-pack.local" 2>/dev/null || true
 # ---------------------------------------------------------------------------
 # 2. Pour the formula — creates persistent beads with proper blocker deps
 # ---------------------------------------------------------------------------
-# bd mol pour (not wisp) for the same reason as scenarios 01 and 03: pour
+# bd mol wisp (not wisp) for the same reason as scenarios 01 and 03: pour
 # creates persistent beads that `bd ready` treats with proper blocker semantics.
 # Ephemerals under wisp (even with --include-ephemeral) do NOT enforce blocker
 # deps — all beads appear ready simultaneously, defeating the voting pattern
@@ -94,7 +94,7 @@ VOTER_PROMPT="What is 2+2? Output only the digit, no other text."
 
 echo "[${SCENARIO_ID}] pouring formula voting..."
 
-WISP_JSON="$(bd mol pour voting \
+WISP_JSON="$(bd mol wisp voting \
     --var voter_prompt="${VOTER_PROMPT}" \
     --var voter_count=3 \
     --var assignee=implementer \
@@ -185,8 +185,8 @@ cat > "${PACK_ROOT}/fixtures/${SCENARIO_ID}-expected.json" <<EOF
   "closed_in_order": [
     {"bead_id": "${BD_STEP_TALLY}", "reason": "tallied"}
   ],
-  "metadata_match": [
-    {"bead_id": "${BD_STEP_TALLY}", "key": "notes_contains", "value": "4"}
+  "notes_contains": [
+    {"bead_id": "${BD_STEP_TALLY}", "value": "4"}
   ]
 }
 EOF

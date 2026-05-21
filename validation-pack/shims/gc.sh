@@ -80,33 +80,23 @@ shim_spawn() {
 shim_await() {
     local bead_id="${1:?shim_await: bead-id required}"
     local timeout_secs="${2:-1500}"
+    local poll_interval=5
 
     echo "[shim_await] waiting for bead ${bead_id} to close (timeout ${timeout_secs}s)..."
 
-    # We poll bd directly instead of using `gc events --watch --payload-match`:
-    # gc events' --payload-match flag does not descend into nested fields, and
-    # the bead.closed DTO carries the bead ID at payload.bead.id (not
-    # payload.id). Without a working filter, --watch returns on the first
-    # event of the requested type rather than on the target bead, which made
-    # the scenario flaky. Polling `bd show --json` is bounded, cheap, and
-    # explicit. (Polling cadence matches gascity's own watcher cadence.)
-    _shim_await_poll "${bead_id}" "${timeout_secs}"
-}
-
-# Poll fallback for shim_await — used when the gc controller is not running.
-# Not the preferred path; present so the scenario is testable even without
-# a live gc supervisor (e.g. during incremental bring-up).
-_shim_await_poll() {
-    local bead_id="${1}"
-    local timeout_secs="${2}"
-    local poll_interval=5
+    # We poll bd directly. `gc events --watch` exits on the first event of the
+    # requested type regardless of subject (--payload-match doesn't descend
+    # into nested fields, so we can't filter to our bead). `gc events --follow`
+    # only emits future events — by the time we attach, a freshly-closed bead
+    # never re-closes. `gc events --since` works for *historical* listing only,
+    # not the streaming variant. The reliable signal is bd's own state.
+    #
+    # 5s cadence keeps latency low without flooding the dolt embedded engine.
     local start_ts
     start_ts="$(date +%s)"
+    local status
 
     while true; do
-        # `bd show <id> --json` returns a one-element array. Read status off
-        # element [0]. Bounded query, no full-table scan.
-        local status
         status="$(bd show "${bead_id}" --json 2>/dev/null \
             | python3 -c 'import json,sys
 try:
@@ -116,16 +106,21 @@ except Exception:
     print("")' 2>/dev/null || echo "")"
 
         if [[ "${status}" == "closed" ]]; then
-            echo "[shim_await] bead ${bead_id} closed (poll)"
+            local elapsed=$(( $(date +%s) - start_ts ))
+            echo "[shim_await] bead ${bead_id} closed (after ${elapsed}s)"
             return 0
         fi
 
         local elapsed=$(( $(date +%s) - start_ts ))
         if [[ "${elapsed}" -ge "${timeout_secs}" ]]; then
-            echo "[shim_await] TIMEOUT after ${elapsed}s: bead ${bead_id} still status=${status:-<unknown>}" >&2
+            echo "[shim_await] TIMEOUT after ${elapsed}s: bead ${bead_id} status=${status:-<unknown>}" >&2
             return 1
         fi
 
         sleep "${poll_interval}"
     done
 }
+
+# Poll fallback for shim_await — used when the gc controller is not running.
+# Not the preferred path; present so the scenario is testable even without
+# a live gc supervisor (e.g. during incremental bring-up).

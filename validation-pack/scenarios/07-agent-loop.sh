@@ -78,16 +78,16 @@ git config --local user.name  "agent" 2>/dev/null || true
 git config --local user.email "agent@validation-pack.local" 2>/dev/null || true
 
 # ---------------------------------------------------------------------------
-# 2. Pour the formula (bd mol pour → persistent beads, blocker semantics)
+# 2. Pour the formula (bd mol wisp → persistent beads, blocker semantics)
 # ---------------------------------------------------------------------------
-# bd mol pour (not wisp): pour creates persistent beads so bd ready enforces
+# bd mol wisp (not wisp): pour creates persistent beads so bd ready enforces
 # proper blocker semantics. Container is destroyed after the scenario, so the
 # "persistence" tradeoff is irrelevant for validation use.
 # The agent-loop formula has a single step (step-loop); no dep chain to manage.
 
 echo "[${SCENARIO_ID}] pouring formula agent-loop..."
 
-WISP_JSON="$(bd mol pour agent-loop \
+WISP_JSON="$(bd mol wisp agent-loop \
     --var multi_step_task="Compute the SHA256 hash of /etc/hostname, then count the number of lines in /etc/passwd, then output both results as a comma-separated pair (sha256,linecount). Use separate bash invocations for each operation. Record each bash command and its first output line as a note after each step." \
     --var assignee=implementer \
     --json)"
@@ -157,15 +157,13 @@ cat > "${PACK_ROOT}/fixtures/${SCENARIO_ID}-expected.json" <<EOF
   "closed_in_order": [
     {"bead_id": "${BD_STEP_LOOP}", "reason": "completed"}
   ],
-  "metadata_match": [
-    {"bead_id": "${BD_STEP_LOOP}", "key": "notes_contains", "value": "bash"}
+  "notes_contains": [
+    {"bead_id": "${BD_STEP_LOOP}", "value": "bash"}
   ]
 }
 EOF
 
 echo "[${SCENARIO_ID}] predicate written to fixtures/${SCENARIO_ID}-expected.json"
-echo "[${SCENARIO_ID}] NOTE: metadata_match/notes_contains is a new predicate kind;"
-echo "[${SCENARIO_ID}]       verify_bead_state.py must be extended before it is enforced."
 
 # ---------------------------------------------------------------------------
 # 6. Spawn the implementer agent (via gc shim)

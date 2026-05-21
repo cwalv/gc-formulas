@@ -180,6 +180,11 @@ def _check_reason(bead_id: str, exp: dict, actual_by_id: dict) -> "tuple[bool, s
     Returns (passed: bool, display_string: str).  The display string is
     suitable for a PASS/FAIL line.  Enforces mutual exclusion of "reason" and
     "reason_one_of" in the same entry.
+
+    `bd list --status=closed` excludes some closed ephemeral wisps in
+    practice (depends on the bd version's list filtering). If the bead is
+    not in the listed `actual_by_id`, fall back to `bd show <id>` to read
+    its status + close_reason directly. That call sees ephemerals too.
     """
     if "reason" in exp and "reason_one_of" in exp:
         msg = (
@@ -189,7 +194,23 @@ def _check_reason(bead_id: str, exp: dict, actual_by_id: dict) -> "tuple[bool, s
         return False, msg
 
     if bead_id not in actual_by_id:
-        return False, f"FAIL: bead {bead_id!r} expected closed but not found in closed list"
+        # Fallback: probe the bead directly. Per-bead lookup is reliable
+        # for ephemeral wisps that don't surface in `bd list --status=closed`.
+        rows = _run_bd("show", bead_id)
+        bead = (rows[0] if isinstance(rows, list) and rows
+                else rows if isinstance(rows, dict) else None)
+        if not isinstance(bead, dict):
+            return False, f"FAIL: bead {bead_id!r} expected closed but not found"
+        if bead.get("status") != "closed":
+            return False, (
+                f"FAIL: bead {bead_id!r} expected closed; "
+                f"bd show reports status={bead.get('status')!r}"
+            )
+        actual_by_id[bead_id] = {
+            "bead_id": bead_id,
+            "reason": bead.get("close_reason", "") or "",
+            "closed_at": bead.get("closed_at", "") or "",
+        }
 
     actual_reason = actual_by_id[bead_id].get("reason", "")
 

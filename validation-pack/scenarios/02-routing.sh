@@ -89,14 +89,15 @@ git config --local user.name  "agent" 2>/dev/null || true
 git config --local user.email "agent@validation-pack.local" 2>/dev/null || true
 
 # ---------------------------------------------------------------------------
-# 2. Pour the formula (bd mol pour → persistent DAG, visible to bd ready)
+# 2. Wisp the formula (bd mol wisp + pour=true in the formula → full DAG)
 # ---------------------------------------------------------------------------
 #
-# bd mol pour (not wisp): pour creates persistent (non-ephemeral) beads.
-# bd ready excludes ephemeral wisps by default, so the foreman's work-loop
-# query `bd ready --metadata-field gc.routed_to=validation/foreman
-# --unassigned` returns [] for wisps unless --include-ephemeral is added.
-# Pour matches scenarios 01, 03, 04, 05, 06, 07.
+# `bd mol wisp <formula>` with `pour = true` in the .formula.toml materialises
+# the full DAG as ephemeral wisps. We deliberately use wisp (not `bd mol pour`)
+# because pour creates persistent beads that accumulate in the substrate over
+# time and grind throughput; wisps are the right primitive for ephemeral
+# validation work. Pollers must pass `--include-ephemeral` to `bd ready` —
+# the personas in this pack already do.
 #
 # Routing input: deliberately unambiguous implementer-work for the first-pass
 # test case. "Add a new GraphQL endpoint for user search" is a code change;
@@ -109,9 +110,9 @@ git config --local user.email "agent@validation-pack.local" 2>/dev/null || true
 ROUTING_INPUT="Add a new GraphQL endpoint for user search that filters by name and email"
 EXPECTED_TARGET="implementer"
 
-echo "[${SCENARIO_ID}] pouring formula routing..."
+echo "[${SCENARIO_ID}] wisping formula routing..."
 
-WISP_JSON="$(bd mol pour routing \
+WISP_JSON="$(bd mol wisp routing \
     --var routing_input="${ROUTING_INPUT}" \
     --var expected_target="${EXPECTED_TARGET}" \
     --var assignee=foreman \

@@ -64,22 +64,22 @@ git config --local user.name  "agent" 2>/dev/null || true
 git config --local user.email "agent@validation-pack.local" 2>/dev/null || true
 
 # ---------------------------------------------------------------------------
-# 2. Pour the formula (bd mol pour → persistent bead DAG)
+# 2. Pour the formula (bd mol wisp → persistent bead DAG)
 # ---------------------------------------------------------------------------
 
 echo "[${SCENARIO_ID}] pouring formula evaluator-optimizer..."
 
-# bd mol pour (not wisp): pour creates persistent beads with proper blocker
+# bd mol wisp (not wisp): pour creates persistent beads with proper blocker
 # semantics. The container is destroyed after the scenario, so persistence
 # is irrelevant, but pour avoids the bd ready ephemeral-exclusion issue
 # documented in scenario 01.
-POUR_JSON="$(bd mol pour evaluator-optimizer \
+WISP_JSON="$(bd mol wisp evaluator-optimizer \
     --var task="Write a one-line haiku about the color teal. Exactly three lines: five syllables, seven syllables, five syllables. No title, no attribution, no other text — only the haiku." \
     --var max_iterations="3" \
     --var assignee=implementer \
     --json)"
 
-echo "[${SCENARIO_ID}] pour output: ${POUR_JSON}"
+echo "[${SCENARIO_ID}] wisp output: ${WISP_JSON}"
 
 # Parse root bead ID and step-iterate bead ID from id_mapping.
 # id_mapping keys are formula-scoped: "evaluator-optimizer" (root) and
@@ -88,7 +88,7 @@ echo "[${SCENARIO_ID}] pour output: ${POUR_JSON}"
 # raw_decode locates the JSON object regardless of preceding text.
 _parse_id() {
     local key="$1"
-    printf '%s' "${POUR_JSON}" | python3 -c "
+    printf '%s' "${WISP_JSON}" | python3 -c "
 import json, sys
 text = sys.stdin.read()
 idx = text.index('{')

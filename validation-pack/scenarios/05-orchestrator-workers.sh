@@ -78,9 +78,9 @@ git config --local user.name  "agent" 2>/dev/null || true
 git config --local user.email "agent@validation-pack.local" 2>/dev/null || true
 
 # ---------------------------------------------------------------------------
-# 2. Pour the formula (bd mol pour → full DAG, persistent phase)
+# 2. Pour the formula (bd mol wisp → full DAG, persistent phase)
 # ---------------------------------------------------------------------------
-# `bd mol pour` (not wisp): pour creates persistent beads with proper blocker
+# `bd mol wisp` (not wisp): pour creates persistent beads with proper blocker
 # semantics. step-implement-1 and step-implement-2 are blocked until step-
 # orchestrate closes; step-land is blocked until both implement beads close.
 # Container is destroyed after the scenario so persistence cost is irrelevant.
@@ -93,7 +93,7 @@ TASK_DESC="Generate a short factual answer for two trivia questions: (1) What is
 
 echo "[${SCENARIO_ID}] pouring formula orchestrator-workers..."
 
-WISP_JSON="$(bd mol pour orchestrator-workers \
+WISP_JSON="$(bd mol wisp orchestrator-workers \
     --var task_description="${TASK_DESC}" \
     --var assignee=foreman \
     --json)"

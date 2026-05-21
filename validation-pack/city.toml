@@ -34,7 +34,12 @@ name = "implementer"
 prompt_template = "personas/implementer.md"
 provider = "claude"
 max_active_sessions = 5
-min_active_sessions = 0
+# Keep one implementer alive across rounds. Several scenarios (06 evaluator-
+# optimizer, others using ping-pong handoff) need the supervisor to bring an
+# implementer back after it drains; min=0 doesn't enforce that, leaving
+# re-routed beads unowned. Cost is minimal because the implementer's idle
+# poll is cheap.
+min_active_sessions = 1
 # Use haiku — faster + less likely to over-investigate substrate state when
 # given an unfamiliar bd/gc environment. Each implementer turn is just
 # claim → simple work → close → loop; max-effort thinking on sonnet/opus
@@ -55,7 +60,11 @@ name = "evaluator"
 prompt_template = "personas/evaluator.md"
 provider = "claude"
 max_active_sessions = 1
-min_active_sessions = 0
+# Keep one evaluator alive throughout the scenario. The evaluator-optimizer
+# pattern ping-pongs work between implementer and evaluator. If the evaluator
+# drains between rounds, the supervisor won't auto-respawn it (min=0 means
+# "don't keep alive"), and a re-routed bead sits unowned indefinitely.
+min_active_sessions = 1
 
 # --- dog ---
 # gc's bundled dolt + maintenance packs ship orders that dispatch to a `dog`

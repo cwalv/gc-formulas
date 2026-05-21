@@ -24,7 +24,7 @@ Run this exact sequence:
 
 ```
 # Step 1: pick up work
-WORK=$(bd ready --metadata-field gc.routed_to=validation/implementer --unassigned --json --limit 1)
+WORK=$(bd ready --include-ephemeral --metadata-field gc.routed_to=validation/implementer --unassigned --json --limit 1)
 if [[ "$WORK" == "[]" || -z "$WORK" ]]; then
     gc runtime drain-ack    # only safe here — no open claims
     exit 0
