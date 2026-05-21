@@ -2,6 +2,20 @@
   "closed_in_order": [
     {"bead_id": "sc-a", "reason": "completed"},
     {"bead_id": "sc-b", "reason": "completed"},
-    {"bead_id": "sc-c", "reason": "completed"}
+    {"bead_id": "sc-c", "reason": "completed"},
+    {"bead_id": "sc-f", "reason_one_of": ["approved", "max-iterations-reached"]}
+  ],
+  "closed_unordered": [
+    {"bead_id": "sc-d", "reason": "completed"},
+    {"bead_id": "sc-e", "reason": "completed"}
+  ],
+  "open":   [{"bead_id": "sc-g"}],
+  "hooked": [{"bead_id": "sc-h"}],
+  "metadata_match": [
+    {"bead_id": "sc-d", "key": "gc.routed_to", "value": "validation/implementer"}
+  ],
+  "notes_contains": [
+    {"bead_id": "sc-e", "value": "iterate:"},
+    {"bead_id": "sc-f", "value": "iterate:"}
   ]
 }

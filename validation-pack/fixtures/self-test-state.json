@@ -1,9 +1,26 @@
 {
   "closed": [
-    {"bead_id": "sc-a", "reason": "completed", "closed_at": "2026-01-01T10:00:00Z"},
-    {"bead_id": "sc-b", "reason": "completed", "closed_at": "2026-01-01T10:05:00Z"},
-    {"bead_id": "sc-c", "reason": "completed", "closed_at": "2026-01-01T10:10:00Z"}
+    {"bead_id": "sc-a", "reason": "completed",  "closed_at": "2026-01-01T10:00:00Z"},
+    {"bead_id": "sc-b", "reason": "completed",  "closed_at": "2026-01-01T10:05:00Z"},
+    {"bead_id": "sc-c", "reason": "completed",  "closed_at": "2026-01-01T10:10:00Z"},
+    {"bead_id": "sc-d", "reason": "completed",  "closed_at": "2026-01-01T10:15:00Z"},
+    {"bead_id": "sc-e", "reason": "completed",  "closed_at": "2026-01-01T10:20:00Z"},
+    {"bead_id": "sc-f", "reason": "approved",   "closed_at": "2026-01-01T10:25:00Z"}
   ],
-  "open": [],
-  "hooked": []
+  "open":   [{"bead_id": "sc-g"}],
+  "hooked": [{"bead_id": "sc-h"}],
+  "bead_details": {
+    "sc-d": {
+      "metadata": {"gc.routed_to": "validation/implementer"},
+      "notes": ""
+    },
+    "sc-e": {
+      "metadata": {},
+      "notes": "iterate: first pass needs revision\nsome more notes"
+    },
+    "sc-f": {
+      "metadata": {},
+      "notes": "iterate: second pass also revised\napproved on third pass"
+    }
+  }
 }
