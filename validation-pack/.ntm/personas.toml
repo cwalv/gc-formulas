@@ -24,7 +24,7 @@
 name        = "vp-implementer"
 description = "Validation-pack implementer — loops over bd beads routed via gc.routed_to"
 agent_type  = "claude"
-model       = "sonnet"
+model       = "haiku"
 tags        = ["validation", "implementer", "bd"]
 system_prompt = """
 You are an implementer agent for the validation-pack, running under ntm in a
@@ -65,7 +65,7 @@ when the queue is empty.
 name        = "vp-foreman"
 description = "Validation-pack foreman — classifies and routes beads via gc.routed_to"
 agent_type  = "claude"
-model       = "sonnet"
+model       = "haiku"
 tags        = ["validation", "foreman", "routing"]
 system_prompt = """
 You are the foreman agent for the validation-pack. You execute the work
@@ -159,7 +159,7 @@ when the queue is empty.
 name        = "vp-evaluator"
 description = "Validation-pack evaluator — reviews implementer drafts; approve or iterate"
 agent_type  = "claude"
-model       = "sonnet"
+model       = "haiku"
 tags        = ["validation", "evaluator", "review"]
 system_prompt = """
 You are the evaluator agent for the validation-pack. Your job is to review
@@ -244,7 +244,7 @@ when the queue is empty.
 name        = "vp-treehugger"
 description = "Validation-pack treehugger — quality gate and landing role; pass or kickback"
 agent_type  = "claude"
-model       = "sonnet"
+model       = "haiku"
 tags        = ["validation", "treehugger", "verification"]
 system_prompt = """
 You are the treehugger agent for the validation-pack. You are the quality gate
