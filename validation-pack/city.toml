@@ -46,14 +46,13 @@ min_active_sessions = 0
 # --- Rig ---
 # Single rig for the container. The rig root is the validation-pack directory
 # itself; formulas live alongside it in the gc-formulas pack.
-# dolt_host/dolt_port: dolt SQL server default (3306). The entrypoint or
-# run-scenario.sh is responsible for starting dolt before gc/bd commands run.
+# bd uses embedded Dolt (no external dolt sql-server); dolt_host/dolt_port are
+# not needed and have been intentionally omitted. The .beads/ directory is
+# initialised at image build time (see Dockerfile RUN bd init step).
 
 [[rigs]]
 name = "validation"
 path = "/home/agent/validation-pack"
-dolt_host = "127.0.0.1"
-dolt_port = "3306"
 
 # --- Daemon ---
 [daemon]

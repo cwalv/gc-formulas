@@ -27,7 +27,7 @@ RUN npm install -g @anthropic-ai/claude-code
 # bd CLI — gastownhall/beads v1.0.4 (prebuilt linux/amd64 release tarball)
 # SHA256: 643e602e27f666c8726abff0f22001e2b5883988fa960204bde20a3129d448a5
 # Release page: https://github.com/gastownhall/beads/releases/tag/v1.0.4
-# No CGO required; server-mode dolt is used in-container (no embedded dolt).
+# bd defaults to embedded Dolt — no external dolt sql-server required.
 # The host bd-wrapper.sh port-guard is intentionally omitted here — it only
 # applies to the host's multi-city environment, not the single-city container.
 RUN curl -fsSL \
@@ -57,6 +57,16 @@ WORKDIR /home/agent
 COPY --chown=agent:agent validation-pack/ /home/agent/validation-pack/
 
 USER agent
+
+# bd substrate — Option A (build-time init, preferred over entrypoint init):
+# Initialise the embedded-Dolt substrate once at image build time. Running as
+# the agent user ensures .beads/ is owned by uid 1000 and the embedded engine
+# can write its WAL/lock files without privilege escalation at runtime. Using
+# --non-interactive prevents bd from prompting in the non-TTY build environment.
+# The prefix "vp" (validation-pack) is the shared namespace for all scenarios.
+# gc does NOT need dolt_host/dolt_port for embedded-mode bd — city.toml's rig
+# block no longer carries those settings (removed during this bead).
+RUN cd /home/agent/validation-pack && bd init --prefix=vp --non-interactive
 
 ENTRYPOINT ["/home/agent/validation-pack/scripts/entrypoint.sh"]
 CMD []
