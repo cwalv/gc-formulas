@@ -30,6 +30,15 @@ install -m 600 /mnt/host-claude/credentials.json "$HOME/.claude/.credentials.jso
 # against a dead controller.
 gc start --city /home/agent/validation-pack
 
+# Suspend the `dog` agent — it's declared in city.toml only so the bundled
+# dolt+maintenance packs' mol-dog-* orders dispatch cleanly. Letting it run
+# concurrently with the scenario's implementer causes bd's JSONL persistence
+# layer to lose writes (each bd invocation imports JSONL, modifies, re-exports;
+# concurrent processes step on each other in last-writer-wins fashion). With
+# dog suspended, only the scenario's implementer (+ gc's control-dispatcher,
+# which is lighter) writes to bd, eliminating most of the contention.
+gc agent suspend dog --city /home/agent/validation-pack 2>&1 | head -3 || true
+
 # Clean shutdown: tell the supervisor to stop when the scenario exits.
 trap 'gc supervisor stop --city /home/agent/validation-pack 2>/dev/null || true' EXIT
 
