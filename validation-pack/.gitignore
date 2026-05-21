@@ -1,1 +1,5 @@
 .gc/
+# Runtime-generated predicate fixtures (scenario drivers write these at run time).
+# Static test fixtures (e.g. self-test-*.json) are tracked and should not be
+# matched by this pattern.
+fixtures/[0-9]*-expected.json
