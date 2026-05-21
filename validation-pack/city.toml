@@ -35,6 +35,13 @@ prompt_template = "personas/implementer.md"
 provider = "claude"
 max_active_sessions = 5
 min_active_sessions = 0
+# Use haiku — faster + less likely to over-investigate substrate state when
+# given an unfamiliar bd/gc environment. Each implementer turn is just
+# claim → simple work → close → loop; max-effort thinking on sonnet/opus
+# blew the gc session-start budget repeatedly.
+[agent.option_defaults]
+model = "claude-haiku-4-5-20251001"
+effort = ""
 
 [[agent]]
 name = "treehugger"
