@@ -40,7 +40,7 @@ min_active_sessions = 0
 # claim → simple work → close → loop; max-effort thinking on sonnet/opus
 # blew the gc session-start budget repeatedly.
 [agent.option_defaults]
-model = "claude-haiku-4-5-20251001"
+model = "haiku"
 effort = ""
 
 [[agent]]
