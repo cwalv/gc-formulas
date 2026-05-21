@@ -1,0 +1,9 @@
+{
+  "closed": [
+    {"bead_id": "sc-a", "reason": "completed", "closed_at": "2026-01-01T10:00:00Z"},
+    {"bead_id": "sc-b", "reason": "completed", "closed_at": "2026-01-01T10:05:00Z"},
+    {"bead_id": "sc-c", "reason": "completed", "closed_at": "2026-01-01T10:10:00Z"}
+  ],
+  "open": [],
+  "hooked": []
+}

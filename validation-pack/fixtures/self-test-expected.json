@@ -1,0 +1,7 @@
+{
+  "closed_in_order": [
+    {"bead_id": "sc-a", "reason": "completed"},
+    {"bead_id": "sc-b", "reason": "completed"},
+    {"bead_id": "sc-c", "reason": "completed"}
+  ]
+}
