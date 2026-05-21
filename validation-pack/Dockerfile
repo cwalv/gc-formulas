@@ -26,16 +26,19 @@ RUN userdel -r ubuntu && useradd -m -u 1000 -s /bin/bash agent
 # bind-mount at run time (see entrypoint.sh).
 RUN npm install -g @anthropic-ai/claude-code
 
-# bd CLI — gastownhall/beads v1.0.4 (prebuilt linux/amd64 release tarball)
-# SHA256: 643e602e27f666c8726abff0f22001e2b5883988fa960204bde20a3129d448a5
-# Release page: https://github.com/gastownhall/beads/releases/tag/v1.0.4
-# bd defaults to embedded Dolt — no external dolt sql-server required.
-# The host bd-wrapper.sh port-guard is intentionally omitted here — it only
-# applies to the host's multi-city environment, not the single-city container.
+# bd CLI — gastownhall/beads v1.0.3 (prebuilt linux/amd64 release tarball)
+# SHA256: 1ef5dca818d7e81574df9e9f9fc2a16ab711da09b0fa7b822ae162d9a81c8912
+# Release page: https://github.com/gastownhall/beads/releases/tag/v1.0.3
+# Pinned to v1.0.3 (not v1.0.4) because v1.0.4 has known issues with the
+# JSONL-import-on-every-invocation persistence model that cause lost-update
+# races between concurrent bd processes (claude implementer + gc supervisor
+# subshells). Observed at v1.0.4: writes land briefly, then revert when a
+# concurrent process re-imports JSONL. User flagged "known issues with this
+# version" — switching to v1.0.3 to validate the substrate.
 RUN curl -fsSL \
-    "https://github.com/gastownhall/beads/releases/download/v1.0.4/beads_1.0.4_linux_amd64.tar.gz" \
+    "https://github.com/gastownhall/beads/releases/download/v1.0.3/beads_1.0.3_linux_amd64.tar.gz" \
     -o /tmp/beads.tar.gz \
-    && echo "643e602e27f666c8726abff0f22001e2b5883988fa960204bde20a3129d448a5  /tmp/beads.tar.gz" | sha256sum -c - \
+    && echo "1ef5dca818d7e81574df9e9f9fc2a16ab711da09b0fa7b822ae162d9a81c8912  /tmp/beads.tar.gz" | sha256sum -c - \
     && tar -xzf /tmp/beads.tar.gz -C /usr/local/bin bd \
     && chmod +x /usr/local/bin/bd \
     && rm /tmp/beads.tar.gz
