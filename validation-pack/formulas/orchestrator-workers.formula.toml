@@ -1,0 +1,300 @@
+description = """
+Orchestrator-workers validation formula — Anthropic catalog pattern 5.
+
+This is the canonical validation of the orchestrator-workers workflow pattern
+as described in Anthropic's *Building Effective Agents*. A foreman (orchestrator)
+decomposes an incoming task into sub-tasks, implementers execute each sub-task in
+parallel (once the orchestrator step closes), and the treehugger validates all
+outputs and lands the work.
+
+Formula shape (four beads, three personas):
+  - step-orchestrate: routed to foreman (the orchestrator). The foreman reads the
+    task_description, decomposes it into exactly two sub-tasks, writes each as
+    'SUBTASK-1: <desc>' and 'SUBTASK-2: <desc>' in its own notes, then closes with
+    reason `decomposed`.
+  - step-implement-1: needs=[step-orchestrate]. Routed to implementer. Reads step-
+    orchestrate's notes to find SUBTASK-1, executes it, records the result in its
+    own notes, closes with reason `completed`.
+  - step-implement-2: needs=[step-orchestrate]. Routed to implementer. Same pattern
+    for SUBTASK-2. Both implement beads are unblocked simultaneously once step-
+    orchestrate closes, so they can be claimed and executed in parallel.
+  - step-land: needs=[step-implement-1, step-implement-2]. Routed to treehugger.
+    Reads both implementer beads' notes, validates that the outputs are non-empty
+    and sensible, writes a one-line 'Landed: <summary>' note, then closes with
+    reason `landed`. This is the terminal success predicate for this scenario.
+
+Routing notes:
+  - step-orchestrate is routed to {{assignee}} (default: foreman) by the driver
+    using a direct metadata write (not gc sling).
+  - step-implement-1, step-implement-2, and step-land are hard-coded in their bead
+    descriptions to direct the agent to self-identify as the correct persona. The
+    driver writes gc.routed_to=validation/<persona> onto each bead explicitly — the
+    descriptions just reinforce persona expectations.
+  - Per-step formula-level routing fields are not exposed by the formula schema;
+    persona assignment beyond the root {{assignee}} var is handled by the driver.
+
+This formula is part of the validation pack that exercises each Anthropic
+workflow pattern end-to-end against a live bd substrate inside the validation
+container. The success predicate for this scenario (checked by verify_bead_state.py)
+is: step-land is closed with reason `landed`; step-implement-1 and step-implement-2
+are each closed with reason `completed`; step-orchestrate is closed with reason
+`decomposed`, in that relative order."""
+
+formula = "orchestrator-workers"
+version = 1
+
+# Materialize step children even when instantiated via `bd mol wisp`.
+# Required since bd c459812e (2026-03-02) — wisp defaults to root-only.
+# See validation-pack-design.md § Decisions locked, "Formula `pour = true`".
+pour = true
+
+[vars]
+[vars.task_description]
+description = "The overall task for the foreman to decompose into two sub-tasks. Should be naturally divisible into two independent, non-overlapping units of work."
+required = true
+
+[vars.assignee]
+description = "Persona to route the orchestrate bead to. Default: foreman."
+default = "foreman"
+
+[[steps]]
+id = "step-orchestrate"
+title = "Orchestrate: decompose '{{task_description}}' into two sub-tasks"
+description = """
+You are the **orchestrator** (foreman role) in an orchestrator-workers flow.
+Your job is to decompose the incoming task into two concrete, non-overlapping
+sub-tasks so that implementer agents can execute them in parallel.
+
+**The overall task:**
+
+> {{task_description}}
+
+**Your lifecycle (follow these steps in order):**
+
+1. Read this bead:
+   ```bash
+   bd show <this-bead-id>
+   ```
+
+2. Claim it:
+   ```bash
+   bd update <this-bead-id> --claim
+   ```
+
+3. Decompose the task above into exactly two independent, non-overlapping
+   sub-tasks. Each sub-task must be:
+   - Self-contained (executable without reference to the other sub-task).
+   - Concrete enough that an implementer can execute it with a direct answer
+     or artifact.
+   - Non-redundant with the other sub-task.
+
+4. Record both sub-tasks in YOUR notes using exactly this format (one per line):
+   ```bash
+   bd update <this-bead-id> --append-notes "$(cat <<'EOF'
+   SUBTASK-1: <description of sub-task 1>
+   SUBTASK-2: <description of sub-task 2>
+   EOF
+   )"
+   ```
+   The implementers will read these lines to find their assignments. The exact
+   prefix `SUBTASK-1:` and `SUBTASK-2:` is required — the implementers grep for it.
+
+5. Close this bead with reason `decomposed`:
+   ```bash
+   bd close <this-bead-id> --reason="decomposed"
+   ```
+   This unblocks step-implement-1 and step-implement-2 simultaneously.
+
+6. Run drain-ack — your orchestration work is done:
+   ```bash
+   gc runtime drain-ack
+   ```
+
+**Exit criteria:** Bead is `closed` with reason `decomposed`; notes contain
+both `SUBTASK-1:` and `SUBTASK-2:` lines that the implementers can consume."""
+
+[[steps]]
+id = "step-implement-1"
+title = "Implement sub-task 1 (from orchestrator's decomposition)"
+needs = ["step-orchestrate"]
+description = """
+You are an **implementer** agent. This bead becomes ready only after the
+orchestrator (step-orchestrate) has closed with its decomposition. Your job
+is to execute SUBTASK-1 from the orchestrator's notes.
+
+**Your lifecycle (follow these steps in order):**
+
+1. Read this bead:
+   ```bash
+   bd show <this-bead-id>
+   ```
+
+2. Claim it immediately:
+   ```bash
+   bd update <this-bead-id> --claim
+   ```
+
+3. Find the orchestrator bead (step-orchestrate). It is a sibling bead in the
+   same formula pour — look up this bead's deps to find its parent, then list
+   the parent's children:
+   ```bash
+   bd show <this-bead-id> --json | jq '.parent'
+   bd show <parent-id> --json | jq '.children'
+   ```
+   The sibling whose title contains "Orchestrate" is step-orchestrate.
+   Note its ID — call it ORCHESTRATE_ID.
+
+4. Read the orchestrator's notes to find your sub-task:
+   ```bash
+   bd show ${ORCHESTRATE_ID} --json | jq '.notes'
+   ```
+   Find the line beginning `SUBTASK-1:`. That is your assignment.
+
+5. Execute the sub-task. Produce a concrete, self-contained result — a direct
+   answer, fact, or artifact that the treehugger can validate.
+
+6. Record your result in this bead's notes:
+   ```bash
+   bd update <this-bead-id> --append-notes "Result: <your output here>"
+   ```
+   Be explicit — the treehugger reads these notes to validate your work.
+
+7. Close this bead:
+   ```bash
+   bd close <this-bead-id> --reason="completed"
+   ```
+
+8. Run drain-ack:
+   ```bash
+   gc runtime drain-ack
+   ```
+
+**Exit criteria:** Bead is `closed` with reason `completed`; notes contain
+a `Result:` line with a concrete, non-empty answer to SUBTASK-1."""
+
+[[steps]]
+id = "step-implement-2"
+title = "Implement sub-task 2 (from orchestrator's decomposition)"
+needs = ["step-orchestrate"]
+description = """
+You are an **implementer** agent. This bead becomes ready only after the
+orchestrator (step-orchestrate) has closed with its decomposition. Your job
+is to execute SUBTASK-2 from the orchestrator's notes.
+
+**Your lifecycle (follow these steps in order):**
+
+1. Read this bead:
+   ```bash
+   bd show <this-bead-id>
+   ```
+
+2. Claim it immediately:
+   ```bash
+   bd update <this-bead-id> --claim
+   ```
+
+3. Find the orchestrator bead (step-orchestrate). It is a sibling bead in the
+   same formula pour — look up this bead's deps to find its parent, then list
+   the parent's children:
+   ```bash
+   bd show <this-bead-id> --json | jq '.parent'
+   bd show <parent-id> --json | jq '.children'
+   ```
+   The sibling whose title contains "Orchestrate" is step-orchestrate.
+   Note its ID — call it ORCHESTRATE_ID.
+
+4. Read the orchestrator's notes to find your sub-task:
+   ```bash
+   bd show ${ORCHESTRATE_ID} --json | jq '.notes'
+   ```
+   Find the line beginning `SUBTASK-2:`. That is your assignment.
+
+5. Execute the sub-task. Produce a concrete, self-contained result — a direct
+   answer, fact, or artifact that the treehugger can validate.
+
+6. Record your result in this bead's notes:
+   ```bash
+   bd update <this-bead-id> --append-notes "Result: <your output here>"
+   ```
+   Be explicit — the treehugger reads these notes to validate your work.
+
+7. Close this bead:
+   ```bash
+   bd close <this-bead-id> --reason="completed"
+   ```
+
+8. Run drain-ack:
+   ```bash
+   gc runtime drain-ack
+   ```
+
+**Exit criteria:** Bead is `closed` with reason `completed`; notes contain
+a `Result:` line with a concrete, non-empty answer to SUBTASK-2."""
+
+[[steps]]
+id = "step-land"
+title = "Land: validate both implementer outputs and close with reason=landed"
+needs = ["step-implement-1", "step-implement-2"]
+description = """
+You are the **treehugger** (quality-gate role) in an orchestrator-workers flow.
+This bead becomes ready only after BOTH step-implement-1 AND step-implement-2
+have closed. Your job is to validate that each implementer produced a non-empty,
+sensible result, then land the work.
+
+**Your lifecycle (follow these steps in order):**
+
+1. Read this bead:
+   ```bash
+   bd show <this-bead-id>
+   ```
+
+2. Claim it immediately:
+   ```bash
+   bd update <this-bead-id> --claim
+   ```
+
+3. Locate step-implement-1 and step-implement-2. They are siblings in the same
+   formula pour — look up this bead's deps first (they are your direct deps):
+   ```bash
+   bd show <this-bead-id> --json | jq '.deps'
+   ```
+   The two dep IDs are step-implement-1 and step-implement-2 (order may vary).
+
+4. Read each implementer's notes:
+   ```bash
+   bd show <implement-1-id> --json | jq '.notes'
+   bd show <implement-2-id> --json | jq '.notes'
+   ```
+
+5. Validate both outputs:
+   - Each must contain a `Result:` line.
+   - Each result must be non-empty (not blank, not "N/A", not a placeholder).
+   - Each result must be sensibly responsive to the sub-task (not gibberish).
+   - The two results must not be identical to each other.
+
+   **If validation FAILS for either output:** do NOT close this bead. Flip it
+   back to open with a kickback note:
+   ```bash
+   bd update <this-bead-id> --status=open --append-notes "Kickback: <reason>"
+   ```
+   Then run drain-ack and stop. The foreman will re-route.
+
+6. If both outputs **pass** validation: write a one-line landing note:
+   ```bash
+   bd update <this-bead-id> --append-notes "Landed: <one-sentence summary of both results>"
+   ```
+
+7. Close with reason `landed` — this is the terminal success signal for the
+   scenario verifier:
+   ```bash
+   bd close <this-bead-id> --reason="landed"
+   ```
+
+8. Run drain-ack:
+   ```bash
+   gc runtime drain-ack
+   ```
+
+**Exit criteria:** Bead is `closed` with reason `landed`; notes contain a
+`Landed:` line summarising both implementer results. This is the final success
+predicate that verify_bead_state.py asserts for scenario 05."""

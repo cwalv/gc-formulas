@@ -1,0 +1,106 @@
+description = """
+Evaluator-optimizer validation formula — Anthropic catalog pattern 6.
+
+This is the canonical validation of the evaluator-optimizer workflow pattern
+as described in Anthropic's *Building Effective Agents*. It materializes a
+SINGLE bead that ping-pongs between an implementer persona and an evaluator
+persona using the substrate's hooked↔open lifecycle.
+
+Lifecycle:
+  1. The driver routes the bead to validation/implementer initially.
+  2. Implementer claims (hooked), produces a draft, appends it to notes, then
+     flips back to open (hooked → open) and routes to validation/evaluator.
+  3. Evaluator claims (hooked), reviews the draft, decides:
+     - Approve → close with reason=approved (terminal).
+     - Iterate → flip back to open with notes "iterate: <feedback>" and
+       route to validation/implementer for another pass.
+  4. Maximum 3 iteration rounds. If evaluator receives the bead on round 4
+     (i.e., >= 3 prior iterate: notes), it closes with reason=max-iterations-reached.
+
+Key invariant: closing is terminal. The ONLY iteration mechanism is
+hooked → open (bd update --status=open). Never close and reopen.
+
+The success predicate for this scenario (checked by verify_bead_state.py) is:
+  - step-iterate closed with reason=approved OR reason=max-iterations-reached.
+  - notes contain at least one "iterate:" entry (confirming the ping-pong fired)."""
+
+formula = "evaluator-optimizer"
+version = 1
+
+# pour=true so bd mol pour materialises the step bead as a persistent child.
+# (bd mol wisp defaults to root-only after c459812e, 2026-03-02.)
+pour = true
+
+[vars]
+[vars.task]
+description = "The work the implementer must attempt and the evaluator must review. Required."
+required = true
+
+[vars.max_iterations]
+description = "Documentation only — the evaluator persona enforces the cap. Default: 3."
+default = "3"
+
+[vars.assignee]
+description = "Initial persona to route the iteration bead to."
+default = "implementer"
+
+[[steps]]
+id = "step-iterate"
+title = "Evaluator-optimizer iteration loop"
+description = """
+This bead is the single ping-pong unit for an evaluator-optimizer loop.
+
+**Task:** {{task}}
+
+---
+
+## If you are the IMPLEMENTER (gc.routed_to = validation/implementer)
+
+1. Read this bead and all its notes: `bd show <id>`
+2. Claim it: `bd update <id> --claim`
+3. Check the notes for any prior `iterate:` feedback from the evaluator. If
+   this is the first pass, produce your initial draft. On subsequent passes,
+   revise based on the evaluator's most recent `iterate:` note.
+4. Append your draft to the bead notes:
+   ```bash
+   bd update <id> --append-notes "draft: <your output here>"
+   ```
+5. Hand off to the evaluator — flip back to open and reroute:
+   ```bash
+   bd update <id> --status=open --notes="draft submitted" --set-metadata gc.routed_to=validation/evaluator
+   ```
+6. Run `gc runtime drain-ack`.
+
+Do NOT close this bead. Only the evaluator closes it.
+
+---
+
+## If you are the EVALUATOR (gc.routed_to = validation/evaluator)
+
+1. Read this bead and all its notes: `bd show <id>`
+2. Claim it: `bd update <id> --claim`
+3. Count the number of `iterate:` lines in the notes. This is the iteration
+   count so far.
+4. Review the most recent `draft:` entry in the notes against the task
+   requirements above.
+5. Decision:
+
+   **Approve** — the draft meets the task requirements:
+   ```bash
+   bd close <id> --reason="approved"
+   ```
+
+   **Iterate** — the draft needs improvement AND iteration count < 3:
+   ```bash
+   bd update <id> --status=open --notes="iterate: <specific actionable feedback>" --set-metadata gc.routed_to=validation/implementer
+   ```
+
+   **Max iterations reached** — iteration count >= 3 (you are on round 4):
+   ```bash
+   bd close <id> --reason="max-iterations-reached"
+   ```
+
+6. Run `gc runtime drain-ack`.
+
+Critical: NEVER close and reopen. Closing is terminal. The only iteration
+mechanism is hooked → open with notes."""

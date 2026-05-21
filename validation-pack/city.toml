@@ -43,6 +43,13 @@ provider = "claude"
 max_active_sessions = 2
 min_active_sessions = 0
 
+[[agent]]
+name = "evaluator"
+prompt_template = "personas/evaluator.md"
+provider = "claude"
+max_active_sessions = 1
+min_active_sessions = 0
+
 # --- dog ---
 # gc's bundled dolt + maintenance packs ship orders that dispatch to a `dog`
 # persona (db maintenance, patrol cleanup, etc.). Stripping those packs from
