@@ -11,7 +11,13 @@ services:
       # copies to ~/.claude/.credentials.json (mode 600) so Claude Code can
       # refresh tokens on the writable in-container copy without touching the
       # host file. See validation-pack-design.md "OAuth handling".
-      - ~/.claude/.credentials.json:/mnt/host-claude/credentials.json:ro
+      #
+      # Snap docker note: compose's ~ and ${HOME} interpolate against snap's
+      # confined HOME (e.g., /home/cwa/snap/docker/<rev>/), not the user's
+      # actual home -- which silently breaks the mount (creates a directory at
+      # the target). We use an absolute path with a CLAUDE_CREDS_PATH env-var
+      # override for portability.
+      - ${CLAUDE_CREDS_PATH:-/home/cwa/.claude/.credentials.json}:/mnt/host-claude/credentials.json:ro
     # To vary city config per iteration without rebuilding image layers, add
     # the following entry to the volumes list above and provide the override file:
     # - ./city.override.toml:/home/agent/validation-pack/city.toml:ro
