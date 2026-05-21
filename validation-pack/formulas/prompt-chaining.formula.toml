@@ -1,0 +1,196 @@
+description = """
+Prompt-chaining validation formula — Anthropic catalog pattern 1.
+
+This is the canonical validation of the prompt-chaining workflow pattern
+as described in Anthropic's *Building Effective Agents*. It materializes
+a 3-bead chain A→B→C in the bd substrate: each step depends on the
+previous one closing first, so the substrate enforces strict ordering.
+No step can be claimed until its predecessor has reached a terminal
+state.
+
+All three beads are routed to the {{assignee}} persona. Step B reads
+step A's notes as its primary input; step C reads step B's notes. This
+makes the data-flow dependency explicit in the bead descriptions and
+demonstrates that the prompt-chaining pattern maps cleanly onto formula
+deps + typed close-reasons with no additional coordination required.
+
+This formula is part of the validation pack that exercises each Anthropic
+workflow pattern end-to-end against a live bd substrate inside the
+validation container. The success predicate for this scenario (checked by
+verify_bead_state.py) is: all three beads closed with reason `completed`,
+in order A then B then C."""
+
+formula = "prompt-chaining"
+version = 1
+
+[vars]
+[vars.task_a]
+description = "Description of the work for step A — the first bead in the chain"
+required = true
+
+[vars.task_b]
+description = "Description of the work for step B — depends conceptually on A's output (formula does not auto-feed it; B reads A's notes explicitly)"
+required = true
+
+[vars.task_c]
+description = "Description of the work for step C — depends conceptually on B's output (formula does not auto-feed it; C reads B's notes explicitly)"
+required = true
+
+[vars.assignee]
+description = "Persona to route each step to"
+default = "implementer"
+
+[[steps]]
+id = "step-a"
+title = "Step A: execute the first task in the chain"
+description = """
+You are the first link in a 3-bead prompt-chaining sequence.
+Steps B and C cannot start until this bead is closed.
+
+**Your assignment:** {{task_a}}
+
+**Lifecycle:**
+
+1. Read this bead carefully before doing anything:
+   ```bash
+   bd show <this-bead-id>
+   ```
+
+2. Claim it (transitions state from `open` to `hooked`):
+   ```bash
+   bd update <this-bead-id> --claim
+   ```
+
+3. Do the work described in your assignment above. Produce a concrete,
+   self-contained result — something step B can read and act on without
+   needing to re-derive your inputs.
+
+4. Record your result in the bead's notes so step B can consume it:
+   ```bash
+   bd update <this-bead-id> --append-notes "Result: <your output here>"
+   ```
+   Use `--append-notes` to preserve earlier notes. If your result is
+   multi-line, pass it via a heredoc:
+   ```bash
+   bd update <this-bead-id> --append-notes "$(cat <<'EOF'
+   Result:
+   <your output here>
+   EOF
+   )"
+   ```
+
+5. Close this bead with a typed reason once your result is recorded:
+   ```bash
+   bd close <this-bead-id> --reason="completed"
+   ```
+
+**Exit criteria:** Bead is `closed` with reason `completed` and notes
+contain a result that step B can read."""
+
+[[steps]]
+id = "step-b"
+title = "Step B: consume step A's output and execute the second task"
+needs = ["step-a"]
+description = """
+You are the second link in a 3-bead prompt-chaining sequence.
+This bead becomes ready only after step A closes. Step C cannot start
+until this bead closes.
+
+**Your assignment:** {{task_b}}
+
+**Lifecycle:**
+
+1. Read this bead carefully before doing anything:
+   ```bash
+   bd show <this-bead-id>
+   ```
+
+2. Claim it:
+   ```bash
+   bd update <this-bead-id> --claim
+   ```
+
+3. Retrieve step A's output from its notes. Step A's bead ID is
+   available via the dependency graph; find it with:
+   ```bash
+   bd show <this-bead-id> --json | jq '.deps'
+   ```
+   Then read step A's notes:
+   ```bash
+   bd show <step-a-bead-id> --json | jq '.notes'
+   ```
+   Incorporate step A's result into your work as appropriate. The
+   formula does not auto-feed outputs — you pull them explicitly. This
+   is intentional: the agent reads and reasons about the prior step's
+   result rather than receiving a blind pipe.
+
+4. Do the work described in your assignment above, building on step A's
+   output.
+
+5. Record your result in this bead's notes so step C can consume it:
+   ```bash
+   bd update <this-bead-id> --append-notes "Result: <your output here>"
+   ```
+
+6. Close this bead:
+   ```bash
+   bd close <this-bead-id> --reason="completed"
+   ```
+
+**Exit criteria:** Bead is `closed` with reason `completed` and notes
+contain a result that step C can read."""
+
+[[steps]]
+id = "step-c"
+title = "Step C: consume step B's output and execute the final task"
+needs = ["step-b"]
+description = """
+You are the final link in a 3-bead prompt-chaining sequence.
+This bead becomes ready only after step B closes.
+
+**Your assignment:** {{task_c}}
+
+**Lifecycle:**
+
+1. Read this bead carefully before doing anything:
+   ```bash
+   bd show <this-bead-id>
+   ```
+
+2. Claim it:
+   ```bash
+   bd update <this-bead-id> --claim
+   ```
+
+3. Retrieve step B's output from its notes. Step B's bead ID is
+   available via the dependency graph; find it with:
+   ```bash
+   bd show <this-bead-id> --json | jq '.deps'
+   ```
+   Then read step B's notes:
+   ```bash
+   bd show <step-b-bead-id> --json | jq '.notes'
+   ```
+   You may also want to trace the full chain:
+   ```bash
+   # Step A's ID is in step B's deps
+   bd show <step-b-bead-id> --json | jq '.deps'
+   bd show <step-a-bead-id> --json | jq '.notes'
+   ```
+
+4. Do the work described in your assignment above, building on step B's
+   output (and optionally step A's if needed).
+
+5. Record your final result in this bead's notes:
+   ```bash
+   bd update <this-bead-id> --append-notes "Result: <your output here>"
+   ```
+
+6. Close this bead — this terminates the chain:
+   ```bash
+   bd close <this-bead-id> --reason="completed"
+   ```
+
+**Exit criteria:** Bead is `closed` with reason `completed`. All three
+beads (A, B, C) are now terminal. The verification predicate in
+verify_bead_state.py will assert their close-reasons and ordering."""
