@@ -82,6 +82,17 @@ COPY --chown=agent:agent validation-pack/ /home/agent/validation-pack/
 
 USER agent
 
+# Disable bd's automatic JSONL export on every CLI invocation. The default
+# (auto-export = on) writes .beads/issues.jsonl after each bd write, which
+# causes lost-update races when multiple bd processes (claude + gc
+# control-dispatcher + supervisor's order machinery) interleave their
+# import-modify-export cycles. With BEADS_EXPORT_AUTO=false bd reads + writes
+# go through the embedded dolt instance directly; JSONL is only updated on
+# explicit `bd export`. Dolt has proper transactional semantics so concurrent
+# writers are safer there. (Observed: gc's own supervisor sets this env on
+# its bd subshells; mirror it container-wide.)
+ENV BEADS_EXPORT_AUTO=false
+
 # Identity for dolt and git. gc's supervisor spawns an external dolt sql-server
 # for the city, and dolt refuses to start without a configured identity. Global
 # git config also acts as bd's audit-row identity. Set both at build time so
