@@ -1,0 +1,92 @@
+description = """
+Agent-loop validation formula — Anthropic catalog pattern 7.
+
+This is the canonical validation of the agent (dynamic loop) workflow
+pattern as described in Anthropic's *Building Effective Agents*. It
+materialises a single bead whose description is a multi-step task. The
+agent plans its own execution, uses tools freely (bash, file reads, etc.),
+and records each step in the bead's notes. No external orchestrator
+pre-structures the substeps — the bead is purely a unit of work + state
+container; the agent owns the planning.
+
+The key distinction from prompt-chaining (pattern 1) is that the bead
+count does NOT grow with the number of substeps. One bead, N tool
+invocations, the agent decides when it is done.
+
+The success predicate for this scenario (checked by verify_bead_state.py)
+is: the bead closes with reason `completed` and its notes contain evidence
+of multiple bash invocations (notes_contains predicate kind — see
+fixtures/07-agent-loop-expected.json and the verify_bead_state.py flag)."""
+
+formula = "agent-loop"
+version = 1
+
+# pour=true: materialise step children even under `bd mol wisp`.
+# Required since bd c459812e (2026-03-02) flipped wisp to root-only.
+# The scenario uses bd mol pour (persistent beads) for blocker semantics,
+# but pour=true is declared defensively to ensure the single step-loop
+# bead is always materialised regardless of how the formula is invoked.
+pour = true
+
+[vars]
+[vars.multi_step_task]
+description = "The multi-step task the agent must execute. The agent decides its own plan; no substep structure is imposed by the formula."
+required = true
+
+[vars.assignee]
+description = "Persona to route the work bead to"
+default = "implementer"
+
+[[steps]]
+id = "step-loop"
+title = "Execute the multi-step task via agentic tool use"
+description = """
+You have a multi-step task to complete. You decide the execution plan.
+Use tools (bash, file reads, etc.) as many times as needed. Record each
+tool invocation in the bead's notes. Close when done.
+
+**Your task:** {{multi_step_task}}
+
+**Lifecycle:**
+
+1. Read this bead before doing anything:
+   ```bash
+   bd show <this-bead-id>
+   ```
+
+2. Claim it immediately:
+   ```bash
+   bd update <this-bead-id> --claim
+   ```
+
+3. Plan and execute the task above using as many tool calls as needed.
+   You are not given a fixed list of substeps — reason about what bash
+   commands or file reads are required and issue them in whatever order
+   makes sense.
+
+4. After EACH tool invocation, append a brief trace entry to the bead's
+   notes. Include the command you ran and the first line of its output:
+   ```bash
+   bd update <this-bead-id> --append-notes "bash: <command-you-ran>
+   output: <first line of output>"
+   ```
+   Use `--append-notes` each time (not --notes) to accumulate the trace.
+   If the note text contains apostrophes or special characters, pass it
+   via a heredoc:
+   ```bash
+   bd update <this-bead-id> --append-notes "$(cat <<'NOTEEOF'
+   bash: <command>
+   output: <first line>
+   NOTEEOF
+   )"
+   ```
+
+5. When the task is fully complete, close this bead:
+   ```bash
+   bd close <this-bead-id> --reason="completed"
+   ```
+
+**Exit criteria:** Bead is `closed` with reason `completed`. Notes contain
+a trace of at least two bash invocations (each recorded via --append-notes
+in step 4 above). The verification predicate will assert both the
+close-reason and that notes contain evidence of bash tool use."""

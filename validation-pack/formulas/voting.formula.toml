@@ -1,0 +1,259 @@
+description = """
+Parallelization-voting validation formula — Anthropic catalog pattern 4.
+
+This is the canonical validation of the parallelization (voting / self-consistency)
+workflow pattern as described in Anthropic's *Building Effective Agents*. It
+materialises 4 beads: 3 independent voter beads (step-voter-1, step-voter-2,
+step-voter-3) with no deps between them, and a single tally bead (step-tally)
+that depends on all three voters.
+
+Unlike the sectioning pattern, all three voter beads carry the SAME prompt. Each
+voter independently answers the same question and records its answer in its notes.
+Low-entropy prompts (e.g. arithmetic) produce identical answers across all voters,
+making the tally deterministic and easy to verify.
+
+The tally bead becomes ready only after all three voter beads close (substrate dep
+enforcement). It reads the three voter notes, computes the majority answer, records
+the result in its own notes, and closes with reason `tallied`.
+
+Default voter prompt: "What is 2+2? Output only the digit, no other text."
+  - Expected per-voter answer: "4"
+  - Expected tally answer: "4" (unanimous majority)
+
+NOTE: `voter_count` is declared as a var but is not used dynamically to generate
+steps — the formula model does not support generative step counts. The field
+exists as documentation of intent: a future formula engine or a runtime wrapper
+that re-pours with N voters could honour it. For now, 3 voters are hard-coded.
+
+This formula is part of the validation pack that exercises each Anthropic workflow
+pattern end-to-end against a live bd substrate inside the validation container. The
+success predicate for this scenario (checked by verify_bead_state.py) is: all three
+voter beads closed with reason `completed` (in any mutual order), then tally bead
+closed with reason `tallied` and notes containing the majority answer."""
+
+formula = "voting"
+version = 1
+
+# Materialize step children even when instantiated via `bd mol wisp`. Wisps
+# default to root-only (per bd c459812e, 2026-03-02). The validation pack runs
+# scenarios ephemerally (container destroyed after each scenario), so wisp is
+# the right semantic fit, but pour=true is required for the step beads to be
+# materialized under it. Also harmless under `bd mol pour`.
+pour = true
+
+[vars]
+[vars.voter_prompt]
+description = "The SAME prompt each voter independently answers. Use low-entropy prompts (e.g. arithmetic) so all voters produce identical outputs and the tally is deterministic."
+required = true
+
+[vars.voter_count]
+description = "Intended number of parallel voters (documentation only — steps are hard-coded at 3; future formula evolution or a pour wrapper can use this to re-generate with N voters)"
+default = "3"
+
+[vars.assignee]
+description = "Persona to route each step to"
+default = "implementer"
+
+[[steps]]
+id = "step-voter-1"
+title = "Voter 1: independently answer the voter prompt"
+# No `needs` — independent of voter-2 and voter-3. All three voters are ready
+# simultaneously; each answers the same question without seeing the others' answers.
+# This is the self-consistency voting pattern: independent parallel sampling.
+description = """
+You are voter 1 of 3 in a parallelization-voting scenario. Each voter independently
+answers the same question without consulting the other voters. Low-entropy
+questions produce identical answers from all voters; the tally bead then confirms
+the majority.
+
+**Your question:** {{voter_prompt}}
+
+**Requirements:**
+- Answer with a single word or digit only — no explanation, no punctuation, no
+  extra text. This keeps the answer format uniform so the tally bead can compare
+  answers across all three voters without parsing prose.
+
+**Lifecycle:**
+
+1. Read this bead:
+   ```bash
+   bd show <this-bead-id>
+   ```
+
+2. Claim it (open → hooked):
+   ```bash
+   bd update <this-bead-id> --claim
+   ```
+
+3. Answer the question above. Produce exactly one token (a digit or a single word).
+
+4. Record your answer in this bead's notes:
+   ```bash
+   bd update <this-bead-id> --append-notes "Answer: <your answer>"
+   ```
+
+5. Close with reason `completed`:
+   ```bash
+   bd close <this-bead-id> --reason="completed"
+   ```
+
+**Exit criteria:** Bead is `closed` with reason `completed` and notes contain
+exactly one "Answer: <token>" line."""
+
+[[steps]]
+id = "step-voter-2"
+title = "Voter 2: independently answer the voter prompt"
+# No `needs` — independent of voter-1 and voter-3.
+description = """
+You are voter 2 of 3 in a parallelization-voting scenario. Each voter independently
+answers the same question without consulting the other voters. Low-entropy
+questions produce identical answers from all voters; the tally bead then confirms
+the majority.
+
+**Your question:** {{voter_prompt}}
+
+**Requirements:**
+- Answer with a single word or digit only — no explanation, no punctuation, no
+  extra text. This keeps the answer format uniform so the tally bead can compare
+  answers across all three voters without parsing prose.
+
+**Lifecycle:**
+
+1. Read this bead:
+   ```bash
+   bd show <this-bead-id>
+   ```
+
+2. Claim it (open → hooked):
+   ```bash
+   bd update <this-bead-id> --claim
+   ```
+
+3. Answer the question above. Produce exactly one token (a digit or a single word).
+
+4. Record your answer in this bead's notes:
+   ```bash
+   bd update <this-bead-id> --append-notes "Answer: <your answer>"
+   ```
+
+5. Close with reason `completed`:
+   ```bash
+   bd close <this-bead-id> --reason="completed"
+   ```
+
+**Exit criteria:** Bead is `closed` with reason `completed` and notes contain
+exactly one "Answer: <token>" line."""
+
+[[steps]]
+id = "step-voter-3"
+title = "Voter 3: independently answer the voter prompt"
+# No `needs` — independent of voter-1 and voter-2.
+description = """
+You are voter 3 of 3 in a parallelization-voting scenario. Each voter independently
+answers the same question without consulting the other voters. Low-entropy
+questions produce identical answers from all voters; the tally bead then confirms
+the majority.
+
+**Your question:** {{voter_prompt}}
+
+**Requirements:**
+- Answer with a single word or digit only — no explanation, no punctuation, no
+  extra text. This keeps the answer format uniform so the tally bead can compare
+  answers across all three voters without parsing prose.
+
+**Lifecycle:**
+
+1. Read this bead:
+   ```bash
+   bd show <this-bead-id>
+   ```
+
+2. Claim it (open → hooked):
+   ```bash
+   bd update <this-bead-id> --claim
+   ```
+
+3. Answer the question above. Produce exactly one token (a digit or a single word).
+
+4. Record your answer in this bead's notes:
+   ```bash
+   bd update <this-bead-id> --append-notes "Answer: <your answer>"
+   ```
+
+5. Close with reason `completed`:
+   ```bash
+   bd close <this-bead-id> --reason="completed"
+   ```
+
+**Exit criteria:** Bead is `closed` with reason `completed` and notes contain
+exactly one "Answer: <token>" line."""
+
+[[steps]]
+id = "step-tally"
+title = "Tally: read all voter answers and record the majority result"
+needs = ["step-voter-1", "step-voter-2", "step-voter-3"]
+# Blocked by the substrate until ALL THREE voter beads are closed. The tally bead
+# never appears in `bd ready` until all deps are satisfied. This is the voting
+# pattern's aggregation gate — only after all independent votes are in does the
+# tally bead unlock.
+description = """
+You are the tally step in a parallelization-voting scenario. This bead only becomes
+ready after all three voter beads (step-voter-1, step-voter-2, step-voter-3) have
+closed. That blocking is enforced by the substrate — you cannot claim this bead
+until all three votes are in.
+
+**Your assignment:** Read the answer from each voter bead, determine the majority
+answer (or unanimous answer if all agree), record it in this bead's notes, and
+close with reason `tallied`.
+
+**Lifecycle:**
+
+1. Read this bead:
+   ```bash
+   bd show <this-bead-id>
+   ```
+
+2. Claim it (open → hooked):
+   ```bash
+   bd update <this-bead-id> --claim
+   ```
+
+3. Find the three voter bead IDs via the dependency graph:
+   ```bash
+   bd show <this-bead-id> --json | jq '.deps'
+   ```
+
+4. Read each voter bead's notes:
+   ```bash
+   bd show <voter-1-bead-id> --json | jq '.notes'
+   bd show <voter-2-bead-id> --json | jq '.notes'
+   bd show <voter-3-bead-id> --json | jq '.notes'
+   ```
+
+5. Extract the answer token from each voter's notes (the value after "Answer: ").
+
+6. Compute the majority answer:
+   - If all three agree, the majority answer is that value.
+   - If two of three agree, the majority answer is the value shared by the two.
+   - If all three differ (no majority), record "no_majority".
+
+7. Record the tally in this bead's notes:
+   ```bash
+   bd update <this-bead-id> --append-notes "$(cat <<'EOF'
+   Votes: <voter-1-answer>, <voter-2-answer>, <voter-3-answer>
+   Majority: <majority-answer>
+   EOF
+   )"
+   ```
+
+8. Close with reason `tallied`:
+   ```bash
+   bd close <this-bead-id> --reason="tallied"
+   ```
+
+**Exit criteria:** Bead is `closed` with reason `tallied` and notes contain a
+"Majority: <answer>" line. The majority answer for the default voter prompt
+("What is 2+2?") is "4". All four beads (three voters + this tally) are now
+terminal. The verification predicate in verify_bead_state.py will assert that all
+voter beads are closed and the tally bead closed after them with reason `tallied`
+and notes containing the majority answer."""
