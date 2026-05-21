@@ -43,6 +43,21 @@ provider = "claude"
 max_active_sessions = 2
 min_active_sessions = 0
 
+# --- dog ---
+# gc's bundled dolt + maintenance packs ship orders that dispatch to a `dog`
+# persona (db maintenance, patrol cleanup, etc.). Stripping those packs from
+# the image doesn't stick — `gc start` re-installs them. Declaring `dog` with
+# a minimal prompt + max=1 lets the orders dispatch cleanly so the supervisor
+# isn't stuck in a tight failure-retry loop trying to start dog sessions
+# against a missing persona (which crowds out our actual implementer's
+# session-start budget).
+[[agent]]
+name = "dog"
+prompt_template = "personas/dog.md"
+provider = "claude"
+max_active_sessions = 1
+min_active_sessions = 0
+
 # --- Rig ---
 # Single rig for the container. The rig root is the validation-pack directory
 # itself; formulas live alongside it in the gc-formulas pack.
