@@ -68,5 +68,21 @@ USER agent
 # block no longer carries those settings (removed during this bead).
 RUN cd /home/agent/validation-pack && bd init --prefix=vp --non-interactive
 
+# Register gc's required custom issue types in bd's types.custom config so
+# gc sling / gc session / gc converge accept beads of those types. Without
+# this, gc fails with "invalid issue type: <name>" (convoy, session, etc.)
+# when it tries to auto-create container beads. The list of required types
+# is hard-coded in gascity's internal/doctor/checks_custom_types.go:23-27.
+# gc doctor --fix reads the missing-types list and writes it via bd config
+# set types.custom.
+#
+# `|| true`: gc doctor runs other checks too (dolt runtime state, gh CLI,
+# external dolt binary). Those are unavailable at build time and emit
+# non-zero exit. The custom-types check runs and applies its fix
+# idempotently before the other checks fail; the registration we care
+# about lands regardless. Tolerating the non-zero exit lets the build
+# proceed.
+RUN gc doctor --fix --city /home/agent/validation-pack || true
+
 ENTRYPOINT ["/home/agent/validation-pack/scripts/entrypoint.sh"]
 CMD []
