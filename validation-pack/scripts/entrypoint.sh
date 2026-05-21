@@ -13,4 +13,24 @@ set -euo pipefail
 mkdir -p "$HOME/.claude"
 install -m 600 /mnt/host-claude/credentials.json "$HOME/.claude/.credentials.json"
 
+# Start gc's machine-wide supervisor so that gc session new, gc events --watch,
+# and gc hook all have a running controller to talk to.
+#
+# gc start registers the city with the supervisor, starts the supervisor in the
+# background (forks gc supervisor run, polls the Unix control socket, and
+# returns once the socket is alive), then triggers an immediate reconciliation.
+# It is NOT a foreground/blocking call — it returns with exit 0 once the
+# supervisor socket is ready, so no explicit background (&) or polling is needed.
+#
+# On EXIT, send SIGTERM to the supervisor so that docker compose run --rm
+# completes cleanly without zombie processes. The socket-based readiness check
+# inside gc start means the supervisor is alive by the time run-scenario.sh
+# begins. If gc start exits non-zero (e.g., dolt missing, bad city.toml), the
+# set -e above aborts the container here rather than silently running scenarios
+# against a dead controller.
+gc start --city /home/agent/validation-pack
+
+# Clean shutdown: tell the supervisor to stop when the scenario exits.
+trap 'gc supervisor stop --city /home/agent/validation-pack 2>/dev/null || true' EXIT
+
 exec /home/agent/validation-pack/scripts/run-scenario.sh "$@"

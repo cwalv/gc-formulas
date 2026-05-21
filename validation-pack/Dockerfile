@@ -8,9 +8,11 @@ RUN apt-get update \
         curl \
         git \
         jq \
+        lsof \
         python3 \
         nodejs \
         npm \
+        tmux \
     && rm -rf /var/lib/apt/lists/*
 
 # Non-root user matching host uid 1000 (see docker-compose.yml `user:` directive).
@@ -51,12 +53,35 @@ RUN curl -fsSL \
     && chmod +x /usr/local/bin/gc \
     && rm /tmp/gascity.tar.gz
 
+# dolt binary — dolthub/dolt v2.0.5 (prebuilt linux/amd64 release tarball)
+# SHA256: 70eb16b8dd5ec3c8ecde711c3977631c4a98ccf7c2f26f5860e79a0787c202ca
+# Release page: https://github.com/dolthub/dolt/releases/tag/v2.0.5
+# gc start (the supervisor) probes dolt binary presence and lsof for port
+# checks; both must be in PATH before the supervisor can manage a city.
+RUN curl -fsSL \
+    "https://github.com/dolthub/dolt/releases/download/v2.0.5/dolt-linux-amd64.tar.gz" \
+    -o /tmp/dolt.tar.gz \
+    && echo "70eb16b8dd5ec3c8ecde711c3977631c4a98ccf7c2f26f5860e79a0787c202ca  /tmp/dolt.tar.gz" | sha256sum -c - \
+    && tar -xzf /tmp/dolt.tar.gz -C /tmp \
+    && mv /tmp/dolt-linux-amd64/bin/dolt /usr/local/bin/dolt \
+    && chmod +x /usr/local/bin/dolt \
+    && rm -rf /tmp/dolt.tar.gz /tmp/dolt-linux-amd64
+
 WORKDIR /home/agent
 
 # Build context is the pack root (../), so the validation-pack/ prefix resolves.
 COPY --chown=agent:agent validation-pack/ /home/agent/validation-pack/
 
 USER agent
+
+# Identity for dolt and git. gc's supervisor spawns an external dolt sql-server
+# for the city, and dolt refuses to start without a configured identity. Global
+# git config also acts as bd's audit-row identity. Set both at build time so
+# every container starts with a working identity.
+RUN git config --global user.name  "agent" \
+    && git config --global user.email "agent@validation-pack.local" \
+    && dolt config --global --add user.name  "agent" \
+    && dolt config --global --add user.email "agent@validation-pack.local"
 
 # bd substrate — Option A (build-time init, preferred over entrypoint init):
 # Initialise the embedded-Dolt substrate once at image build time. Running as
