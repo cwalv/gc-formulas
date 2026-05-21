@@ -1,0 +1,18 @@
+# Compose file for SHIM=ntm runs.
+#
+# Same image as docker-compose.yml (validation-pack:latest), but overrides
+# the entrypoint to scripts/entrypoint-ntm.sh — which skips the gc
+# supervisor boot and only initialises ntm's config.
+#
+# Usage:
+#   docker compose -f docker-compose.ntm.yml -p vpNN run --rm validation <scenario-id>
+services:
+  validation:
+    image: validation-pack:latest
+    user: "1000:1000"
+    entrypoint: ["/home/agent/validation-pack/scripts/entrypoint-ntm.sh"]
+    environment:
+      SHIM: ntm
+    volumes:
+      # Same OAuth bind-mount path as docker-compose.yml (see comments there).
+      - ${CLAUDE_CREDS_PATH:-/home/cwa/.claude/.credentials.json}:/mnt/host-claude/credentials.json:ro

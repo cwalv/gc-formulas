@@ -11,9 +11,10 @@
 #   ntm manages tmux sessions; each pane is an AI agent. Sessions are created
 #   with `ntm spawn`, prompts are pushed via `ntm send`. ntm has no concept
 #   equivalent to gc's controller/session-pool — work routing is accomplished
-#   by sending explicit prompts to panes. There is no gc.routed_to metadata
-#   in ntm's model; instead the driver routes by sending a bead-targeted prompt
-#   directly to the spawned pane (see shim_spawn).
+#   by sending explicit prompts to panes. The routing key (gc.routed_to) is
+#   shared across shims — namespace is just a string. Scenario drivers write
+#   gc.routed_to=validation/<persona> and both gc and ntm personas query that
+#   same key (see shim_spawn).
 #
 # Routing mapping:
 #   gc shim:  gc session new → pool subscribes via gc hook / gc.routed_to
@@ -196,14 +197,23 @@ shim_spawn() {
         tmux kill-session -t "${session}" 2>/dev/null || true
     fi
 
-    echo "[shim_spawn] creating ntm session: ${session} persona=${persona} count=${count}"
+    # ntm ships built-in personas (implementer, architect, etc.) whose system
+    # prompts don't match this validation-pack's lifecycle. Our project-level
+    # .ntm/personas.toml declares vp-* names to avoid shadowing — so when
+    # scenarios call shim_spawn implementer/foreman/etc., we map to the vp-*
+    # variants here. The mapping is one line of shell, the alternative is
+    # changing every scenario driver to call shim_spawn with the vp- prefix,
+    # which would be ugly cross-shim contract leakage.
+    local ntm_persona="vp-${persona}"
+
+    echo "[shim_spawn] creating ntm session: ${session} persona=${ntm_persona} count=${count}"
 
     # ntm spawn creates the tmux session and starts Claude panes with the
     # persona's system prompt pre-loaded. --no-user skips the human pane.
     # --prompt is NOT used here — we send the task separately below so we can
     # reference the actual bead IDs that are only known post-wisp.
     ntm spawn "${session}" \
-        --persona="${persona}:${count}" \
+        --persona="${ntm_persona}:${count}" \
         --no-user \
         --config "${NTM_CONFIG}"
 
@@ -215,15 +225,15 @@ shim_spawn() {
 
     # Build the task prompt. The ntm-implementer persona knows the bd lifecycle
     # but needs a routing hint so it queries the right metadata field.
-    # ntm routing: we set ntm.routed_to=validation/${persona} (ntm namespace)
-    # on the beads; the persona prompt queries on that key.
+    # Routing key is shared across shims: scenario drivers write
+    # gc.routed_to=validation/<persona>; both gc and ntm personas query that key.
     # The scenario driver sets this metadata before calling shim_spawn.
     local loop_prompt
     loop_prompt="$(cat <<'PROMPT'
 You are running in a one-shot validation container. Your task:
 
 1. Find ready beads routed to you:
-   bd ready --metadata-field ntm.routed_to=validation/implementer --unassigned
+   bd ready --include-ephemeral --metadata-field gc.routed_to=validation/implementer --unassigned
 2. For each bead found:
    a. Claim it: bd update <id> --claim
    b. Read it: bd show <id>

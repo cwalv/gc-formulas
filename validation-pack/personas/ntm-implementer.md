@@ -5,7 +5,7 @@ doing anything.
 
 Your lifecycle:
 1. Find ready beads routed to you:
-     bd ready --metadata-field ntm.routed_to=validation/implementer --unassigned
+     bd ready --include-ephemeral --metadata-field gc.routed_to=validation/implementer --unassigned
 2. Claim immediately — before any other tool call:
      bd update <id> --claim
 3. Read the bead:

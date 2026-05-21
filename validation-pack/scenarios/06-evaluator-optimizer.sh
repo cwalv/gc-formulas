@@ -144,7 +144,7 @@ cat > "${PACK_ROOT}/fixtures/${SCENARIO_ID}-expected.json" <<EOF
   "notes_contains": [
     {
       "bead_id": "${BD_STEP_ITERATE}",
-      "value": "iterate:"
+      "value": "iterate: forced-round-1"
     }
   ]
 }

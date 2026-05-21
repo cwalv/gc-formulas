@@ -157,5 +157,7 @@ RUN rm -rf /home/agent/validation-pack/.gc/system/packs/gastown \
     /home/agent/validation-pack/.gc/system/packs/dolt/formulas \
     /home/agent/validation-pack/.gc/system/packs/dolt/agents
 
-ENTRYPOINT ["/home/agent/validation-pack/scripts/entrypoint.sh"]
+# Default entrypoint is the gc-shim path. Compose overrides this to
+# scripts/entrypoint-ntm.sh for SHIM=ntm runs (see docker-compose.ntm.yml).
+ENTRYPOINT ["/home/agent/validation-pack/scripts/entrypoint-gc.sh"]
 CMD []
