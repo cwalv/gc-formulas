@@ -79,18 +79,28 @@ WISP_JSON="$(bd mol wisp prompt-chaining \
     --var task_b="Read step-a's notes. For each word in the list, write a single sentence describing that word's connotation. Output one sentence per line." \
     --var task_c="Read step-b's notes. Combine the sentences into a single coherent paragraph of 3-5 sentences." \
     --var assignee=implementer \
-    --json 2>&1)"
+    --json)"
 
 echo "[${SCENARIO_ID}] wisp output: ${WISP_JSON}"
 
 # Parse the 3 step bead IDs from the id_mapping.
 # id_mapping keys are formula-scoped: "prompt-chaining.step-a" etc.
-BD_STEP_A="$(printf '%s' "${WISP_JSON}" | python3 -c \
-    'import json,sys; d=json.load(sys.stdin); print(d["id_mapping"]["prompt-chaining.step-a"])')"
-BD_STEP_B="$(printf '%s' "${WISP_JSON}" | python3 -c \
-    'import json,sys; d=json.load(sys.stdin); print(d["id_mapping"]["prompt-chaining.step-b"])')"
-BD_STEP_C="$(printf '%s' "${WISP_JSON}" | python3 -c \
-    'import json,sys; d=json.load(sys.stdin); print(d["id_mapping"]["prompt-chaining.step-c"])')"
+# Robust parse: bd may emit auto-import lines on stdout before the JSON
+# (observed: "auto-importing N bytes...", "auto-imported N issues..."). Use
+# raw_decode to locate and parse the JSON object regardless of preceding text.
+_parse_step() {
+    local step="$1"
+    printf '%s' "${WISP_JSON}" | python3 -c "
+import json, sys
+text = sys.stdin.read()
+idx = text.index('{')
+d = json.loads(text[idx:])
+print(d['id_mapping']['prompt-chaining.${step}'])
+"
+}
+BD_STEP_A="$(_parse_step step-a)"
+BD_STEP_B="$(_parse_step step-b)"
+BD_STEP_C="$(_parse_step step-c)"
 
 echo "[${SCENARIO_ID}] step-a=${BD_STEP_A} step-b=${BD_STEP_B} step-c=${BD_STEP_C}"
 

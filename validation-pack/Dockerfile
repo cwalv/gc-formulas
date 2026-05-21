@@ -109,5 +109,17 @@ RUN cd /home/agent/validation-pack && bd init --prefix=vp --non-interactive
 # proceed.
 RUN gc doctor --fix --city /home/agent/validation-pack || true
 
+# Strip bundled packs that declare personas (mayor, dog, witness, polecat,
+# refinery, deacon, boot) we don't declare in city.toml. Those packs include
+# `[[named_session]] mode = "always"` entries for those personas, which the
+# supervisor then tries to start, fails repeatedly, and the noise prevents
+# our scenario's implementer session from getting scheduled. Validation pack
+# only needs the gc core (supervisor, control-dispatcher, reconciler) plus
+# our 3 declared personas (foreman, implementer, treehugger). Bundled packs
+# are gone — gc core still works.
+RUN rm -rf /home/agent/validation-pack/.gc/system/packs/gastown \
+    /home/agent/validation-pack/.gc/system/packs/maintenance \
+    /home/agent/validation-pack/.gc/system/packs/dolt
+
 ENTRYPOINT ["/home/agent/validation-pack/scripts/entrypoint.sh"]
 CMD []

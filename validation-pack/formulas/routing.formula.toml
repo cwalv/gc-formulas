@@ -1,0 +1,150 @@
+description = """
+Routing validation formula — Anthropic catalog pattern 2.
+
+This is the canonical validation of the routing workflow pattern as described
+in Anthropic's *Building Effective Agents*. A "router" agent (the foreman
+persona) reads an ambiguous work request and classifies it as either
+implementer-work (code change) or treehugger-work (review/landing), then
+routes a downstream execute bead to the appropriate persona via
+`bd update --set-metadata gc.routed_to=validation/<chosen>`.
+
+Formula shape (design B — two beads, foreman + downstream):
+  - step-classify: routed to {{assignee}} (default: foreman). The foreman
+    reads the routing_input, decides the persona, writes the routing decision
+    onto step-execute via `bd update --set-metadata`, then closes
+    step-classify with reason `classified`.
+  - step-execute: initially unrouted. Becomes the observable artefact the
+    verifier inspects: its gc.routed_to metadata must match expected_target
+    after step-classify closes. The driver does NOT await step-execute
+    closing — routing decision is the predicate, not execution.
+
+Design choice notes:
+  - Shape B chosen over A (one-bead status-flip) because it cleanly
+    separates the routing decision (step-classify bead) from the downstream
+    work unit (step-execute bead), better representing the routing pattern.
+  - Shape B chosen over C (three beads, router + N candidates) because the
+    binary classification (implementer vs treehugger) is representative
+    without the added complexity of N-candidate management for a first-pass.
+  - step-execute has NO `needs` dependency on step-classify here; the foreman
+    writes its routing metadata directly (not via a substrate dep). This is
+    intentional: the routing decision is the test, and the scenario driver
+    waits for step-classify to close before inspecting step-execute's
+    metadata. Adding `needs = ["step-classify"]` would suppress step-execute
+    from bd ready until after step-classify closes, which is correct behaviour
+    for a real workflow but not needed for this validation scenario since
+    step-execute is never claimed in this test.
+
+This formula is part of the validation pack that exercises each Anthropic
+workflow pattern end-to-end against a live bd substrate inside the
+validation container. The success predicate for this scenario (checked by
+verify_bead_state.py) is: step-classify is closed with reason `classified`;
+step-execute has gc.routed_to=validation/<expected_target>."""
+
+formula = "routing"
+version = 1
+
+# Materialize step children even when instantiated via `bd mol wisp`.
+# Required since bd c459812e (2026-03-02) — wisp defaults to root-only.
+# See validation-pack-design.md § Decisions locked, "Formula `pour = true`".
+pour = true
+
+[vars]
+[vars.routing_input]
+description = "The work request text to classify. Should be clear enough to classify unambiguously as either implementer-work or treehugger-work."
+required = true
+
+[vars.expected_target]
+description = "The persona name the scenario driver expects the foreman to route to (either 'implementer' or 'treehugger'). Written into the fixture for verifier assertion; not read by the foreman."
+required = true
+
+[vars.assignee]
+description = "Persona to route the classify bead to. Default: foreman. Override to test alternative classifiers."
+default = "foreman"
+
+[[steps]]
+id = "step-classify"
+title = "Classify '{{routing_input}}' and route step-execute to the correct persona"
+description = """
+You are acting as a routing agent. Your job is to read a work request, decide
+which persona should handle it, and write that routing decision onto the
+downstream execute bead — then close this classify bead to signal you are done.
+
+**The work request to classify:**
+
+> {{routing_input}}
+
+**Classification rules:**
+
+- **implementer-work**: the request involves writing, modifying, or debugging
+  code; creating or editing files; running tests; making commits; any hands-on
+  technical change.
+
+- **treehugger-work**: the request involves reviewing code, auditing changes,
+  landing / merging branches, gate-checking pull requests, or any activity
+  where the output is a verdict or a merge action rather than new code.
+
+If the request is ambiguous, prefer `implementer-work`.
+
+**Your lifecycle (follow these steps in order):**
+
+1. Read this bead:
+   ```bash
+   bd show <this-bead-id>
+   ```
+
+2. Claim it:
+   ```bash
+   bd update <this-bead-id> --claim
+   ```
+
+3. Find the step-execute bead ID. It was created alongside this bead as part
+   of the same formula pour. Use the dependency graph to locate it:
+   ```bash
+   # Show the parent (root) bead's children to find the sibling step:
+   bd show <this-bead-id> --json | jq '.parent'
+   # Then show the parent to list children:
+   bd show <parent-id> --json | jq '.children'
+   ```
+   The sibling bead whose title contains "Execute" is step-execute.
+   Note its ID — call it STEP_EXECUTE_ID.
+
+4. Decide the classification: `implementer` or `treehugger`.
+
+5. Write the routing decision onto the execute bead:
+   ```bash
+   bd update ${STEP_EXECUTE_ID} --set-metadata gc.routed_to=validation/<chosen>
+   ```
+   Replace `<chosen>` with exactly `implementer` or `treehugger`.
+   Also record your reasoning in the execute bead's notes:
+   ```bash
+   bd update ${STEP_EXECUTE_ID} --append-notes "Routing decision: <chosen> — <one sentence rationale>"
+   ```
+
+6. Close this classify bead with reason `classified`:
+   ```bash
+   bd close <this-bead-id> --reason="classified"
+   ```
+
+**Exit criteria:** This bead is `closed` with reason `classified`; the
+step-execute bead has `gc.routed_to=validation/<chosen>` in its metadata."""
+
+[[steps]]
+id = "step-execute"
+title = "Execute (awaiting routing decision from step-classify)"
+description = """
+This bead is the downstream work unit in the routing validation scenario.
+It is intentionally left unrouted when created. The step-classify bead
+(handled by the foreman) writes `gc.routed_to=validation/<persona>` onto
+this bead as its routing decision.
+
+The scenario verifier checks this bead's `gc.routed_to` metadata after
+step-classify closes. No agent should claim or close this bead during the
+routing scenario — it is the observable artefact that proves routing happened.
+
+If you are an agent and you have somehow picked up this bead before routing
+metadata has been written, stop: do not claim it. Return it to open and
+await the routing decision from step-classify.
+
+**NOTE for treehugger running verify_bead_state.py:** this bead will NOT be
+closed at scenario end; the verifier asserts the `metadata_match` predicate
+on this bead's metadata, not its close state. See fixtures/02-routing-expected.json."""
