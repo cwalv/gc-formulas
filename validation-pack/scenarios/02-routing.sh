@@ -50,6 +50,23 @@ fi
 source "${SHIM_FILE}"
 
 # ---------------------------------------------------------------------------
+# Diagnostics helper (called by the timeout failure path below). Defined here
+# so it's available before its first call site.
+# ---------------------------------------------------------------------------
+_dump_diagnostics() {
+    echo "--- classify bead state ---" >&2
+    bd show "${STEP_CLASSIFY:-}" --json 2>/dev/null \
+        | jq '{id, status, close_reason, metadata}' 2>&1 || true
+    echo "--- execute bead state ---" >&2
+    bd show "${STEP_EXECUTE:-}" --json 2>/dev/null \
+        | jq '{id, status, close_reason, metadata}' 2>&1 || true
+    echo "--- bd ready (foreman pool) ---" >&2
+    bd ready --metadata-field gc.routed_to=validation/foreman 2>&1 || true
+    echo "--- gc session list ---" >&2
+    gc session list --city "${PACK_ROOT}" 2>&1 || true
+}
+
+# ---------------------------------------------------------------------------
 # 1. Substrate prep
 # ---------------------------------------------------------------------------
 
@@ -72,9 +89,15 @@ git config --local user.name  "agent" 2>/dev/null || true
 git config --local user.email "agent@validation-pack.local" 2>/dev/null || true
 
 # ---------------------------------------------------------------------------
-# 2. Wisp the formula (bd mol wisp + pour=true → full DAG, ephemeral phase)
+# 2. Pour the formula (bd mol pour → persistent DAG, visible to bd ready)
 # ---------------------------------------------------------------------------
-
+#
+# bd mol pour (not wisp): pour creates persistent (non-ephemeral) beads.
+# bd ready excludes ephemeral wisps by default, so the foreman's work-loop
+# query `bd ready --metadata-field gc.routed_to=validation/foreman
+# --unassigned` returns [] for wisps unless --include-ephemeral is added.
+# Pour matches scenarios 01, 03, 04, 05, 06, 07.
+#
 # Routing input: deliberately unambiguous implementer-work for the first-pass
 # test case. "Add a new GraphQL endpoint for user search" is a code change;
 # any competent classifier routes this to implementer. Edge cases (ambiguous
@@ -86,9 +109,9 @@ git config --local user.email "agent@validation-pack.local" 2>/dev/null || true
 ROUTING_INPUT="Add a new GraphQL endpoint for user search that filters by name and email"
 EXPECTED_TARGET="implementer"
 
-echo "[${SCENARIO_ID}] wisping formula routing..."
+echo "[${SCENARIO_ID}] pouring formula routing..."
 
-WISP_JSON="$(bd mol wisp routing \
+WISP_JSON="$(bd mol pour routing \
     --var routing_input="${ROUTING_INPUT}" \
     --var expected_target="${EXPECTED_TARGET}" \
     --var assignee=foreman \
@@ -204,66 +227,14 @@ fi
 echo "[${SCENARIO_ID}] step-classify closed"
 
 # ---------------------------------------------------------------------------
-# 7. Inline metadata assertion (covers metadata_match until verifier supports it)
+# 7. Outcome
 # ---------------------------------------------------------------------------
-# Inspect step-execute's gc.routed_to metadata and assert it matches the
-# expected target. This bridges the gap until verify_bead_state.py gains
-# metadata_match support.
+# Metadata assertion is delegated to verify_bead_state.py via the
+# metadata_match predicate (supported since this driver was written).
+# An earlier inline re-read here was racy: bd's JSONL import cycle could
+# show the metadata as <not set> immediately after the foreman wrote it,
+# even though the verifier (which runs a beat later via run-scenario.sh)
+# sees the value correctly. Trust the verifier as the single source of truth.
 
-echo "[${SCENARIO_ID}] asserting step-execute routing metadata..."
-
-ACTUAL_ROUTED_TO="$(bd show "${STEP_EXECUTE}" --json \
-    | python3 -c "
-import json, sys
-text = sys.stdin.read()
-idx = text.index('{')
-d = json.loads(text[idx:])
-# Metadata may be at d['metadata'] or d['gc.routed_to'] depending on bd version.
-# Try both common shapes.
-meta = d.get('metadata') or {}
-val = meta.get('gc.routed_to') or d.get('gc.routed_to') or ''
-print(val)
-" 2>/dev/null || true)"
-
-EXPECTED_ROUTED_TO="validation/${EXPECTED_TARGET}"
-
-if [[ "${ACTUAL_ROUTED_TO}" == "${EXPECTED_ROUTED_TO}" ]]; then
-    echo "[${SCENARIO_ID}] PASS: step-execute gc.routed_to=${ACTUAL_ROUTED_TO}"
-else
-    echo "[${SCENARIO_ID}] FAIL: step-execute routing mismatch" >&2
-    echo "  expected: ${EXPECTED_ROUTED_TO}" >&2
-    echo "  actual:   ${ACTUAL_ROUTED_TO:-<not set>}" >&2
-    _dump_diagnostics
-    exit 1
-fi
-
-# ---------------------------------------------------------------------------
-# 8. Outcome
-# ---------------------------------------------------------------------------
-
-echo "[${SCENARIO_ID}] routing scenario SUCCESS"
+echo "[${SCENARIO_ID}] routing scenario driver SUCCESS — verifier asserts metadata_match"
 exit 0
-
-# ---------------------------------------------------------------------------
-# Diagnostics helper (called on failure paths above)
-# ---------------------------------------------------------------------------
-_dump_diagnostics() {
-    echo "--- classify bead state ---" >&2
-    bd show "${STEP_CLASSIFY}" --json 2>/dev/null \
-        | jq '{id, status, close_reason, metadata}' 2>&1 || true
-    echo "--- execute bead state ---" >&2
-    bd show "${STEP_EXECUTE}" --json 2>/dev/null \
-        | jq '{id, status, close_reason, metadata}' 2>&1 || true
-    echo "--- open beads in this run ---" >&2
-    bd list --status=open --json 2>/dev/null \
-        | jq -r "[.[] | select(.id==\"${STEP_CLASSIFY}\" or .id==\"${STEP_EXECUTE}\")] | .[] | [.id, .status, .title] | @tsv" \
-        2>&1 || true
-    echo "--- hooked beads in this run ---" >&2
-    bd list --status=hooked --json 2>/dev/null \
-        | jq -r "[.[] | select(.id==\"${STEP_CLASSIFY}\" or .id==\"${STEP_EXECUTE}\")] | .[] | [.id, .status, .title] | @tsv" \
-        2>&1 || true
-    echo "--- bd ready (foreman pool) ---" >&2
-    bd ready --metadata-field gc.routed_to=validation/foreman 2>&1 || true
-    echo "--- gc session list ---" >&2
-    gc session list --city "${PACK_ROOT}" 2>&1 || true
-}

@@ -80,50 +80,17 @@ shim_spawn() {
 shim_await() {
     local bead_id="${1:?shim_await: bead-id required}"
     local timeout_secs="${2:-1500}"
-    local timeout_str="${timeout_secs}s"
 
-    echo "[shim_await] waiting for bead ${bead_id} to close (timeout ${timeout_str})..."
+    echo "[shim_await] waiting for bead ${bead_id} to close (timeout ${timeout_secs}s)..."
 
-    # Primary: gc events --watch
-    # Filter: type=bead.closed, payload bead_id matches.
-    # --payload-match key=value can be repeated; the exact payload field name
-    # for the bead ID is 'id' based on gc's bead.closed event DTO.
-    if gc events \
-            --watch \
-            --type bead.closed \
-            --payload-match "id=${bead_id}" \
-            --timeout "${timeout_str}" \
-            --city "${PACK_ROOT}" \
-            2>/dev/null; then
-        echo "[shim_await] bead ${bead_id} closed (event received)"
-        return 0
-    fi
-
-    local gc_exit=$?
-
-    # Distinguish between "API unreachable" (permanent, fall back to polling)
-    # and "timeout reached" (transient, still time remaining — but gc already
-    # enforced the timeout so we should not retry).
-    # gc events exits 1 on both timeout and API failure; we check stderr text
-    # to tell them apart. If the API error appears, fall through to polling.
-    local gc_stderr
-    gc_stderr=$(gc events \
-        --watch \
-        --type bead.closed \
-        --payload-match "id=${bead_id}" \
-        --timeout "1s" \
-        --city "${PACK_ROOT}" \
-        2>&1 || true)
-
-    if echo "${gc_stderr}" | grep -q "auto-discover"; then
-        echo "[shim_await] gc events unavailable (no controller API); falling back to bd poll" >&2
-        _shim_await_poll "${bead_id}" "${timeout_secs}"
-        return $?
-    fi
-
-    # gc events ran but timed out — surface it as a failure.
-    echo "[shim_await] TIMEOUT: bead ${bead_id} did not close within ${timeout_str}" >&2
-    return 1
+    # We poll bd directly instead of using `gc events --watch --payload-match`:
+    # gc events' --payload-match flag does not descend into nested fields, and
+    # the bead.closed DTO carries the bead ID at payload.bead.id (not
+    # payload.id). Without a working filter, --watch returns on the first
+    # event of the requested type rather than on the target bead, which made
+    # the scenario flaky. Polling `bd show --json` is bounded, cheap, and
+    # explicit. (Polling cadence matches gascity's own watcher cadence.)
+    _shim_await_poll "${bead_id}" "${timeout_secs}"
 }
 
 # Poll fallback for shim_await — used when the gc controller is not running.
@@ -132,24 +99,30 @@ shim_await() {
 _shim_await_poll() {
     local bead_id="${1}"
     local timeout_secs="${2}"
-    local poll_interval=10
+    local poll_interval=5
     local start_ts
     start_ts="$(date +%s)"
 
     while true; do
+        # `bd show <id> --json` returns a one-element array. Read status off
+        # element [0]. Bounded query, no full-table scan.
         local status
-        status="$(bd list --status=closed --json 2>/dev/null \
-            | jq -r "[.[] | select(.id==\"${bead_id}\")] | length" \
-            2>/dev/null || echo 0)"
+        status="$(bd show "${bead_id}" --json 2>/dev/null \
+            | python3 -c 'import json,sys
+try:
+    d = json.load(sys.stdin)[0]
+    print(d.get("status",""))
+except Exception:
+    print("")' 2>/dev/null || echo "")"
 
-        if [[ "${status}" -ge 1 ]]; then
+        if [[ "${status}" == "closed" ]]; then
             echo "[shim_await] bead ${bead_id} closed (poll)"
             return 0
         fi
 
         local elapsed=$(( $(date +%s) - start_ts ))
         if [[ "${elapsed}" -ge "${timeout_secs}" ]]; then
-            echo "[shim_await] TIMEOUT after ${elapsed}s: bead ${bead_id} still not closed" >&2
+            echo "[shim_await] TIMEOUT after ${elapsed}s: bead ${bead_id} still status=${status:-<unknown>}" >&2
             return 1
         fi
 
