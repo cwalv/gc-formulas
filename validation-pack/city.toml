@@ -1,0 +1,60 @@
+# Minimal gc city for in-container validation scenarios.
+#
+# Baked into the image via `COPY --chown=agent:agent validation-pack/ /home/agent/validation-pack/`
+# (see Dockerfile). Tests run against this city without any runtime setup step.
+#
+# To vary city config per iteration without rebuilding image layers, bind-mount
+# an override file over the baked one in docker-compose.yml (see the commented
+# volume entry there).
+#
+# Stripped vs. host city (gc-chost.home.cwa.lv/city.toml):
+#   - No mayor, dog, sme, gc-formula-master, worker, refinery agents (host-only roles).
+#   - No host-absolute prompt_template paths.
+#   - No named_sessions (all agent invocations in scenarios are ephemeral).
+#   - No foundations / foundations-test rig entries (host weave paths).
+#   - Dolt port is 3306 (dolt default); host uses non-default ports to avoid
+#     collision between rigs. Single-rig container has no collision concern.
+
+[workspace]
+name = "validation-pack"
+
+# --- Persona pool declarations ---
+# Prompt templates are resolved relative to the city dir (/home/agent/validation-pack/).
+# The personas/ directory is populated by a sibling bead (persona toml files).
+
+[[agent]]
+name = "foreman"
+prompt_template = "personas/foreman.md"
+provider = "claude"
+max_active_sessions = 1
+min_active_sessions = 0
+
+[[agent]]
+name = "implementer"
+prompt_template = "personas/implementer.md"
+provider = "claude"
+max_active_sessions = 5
+min_active_sessions = 0
+
+[[agent]]
+name = "treehugger"
+prompt_template = "personas/treehugger.md"
+provider = "claude"
+max_active_sessions = 2
+min_active_sessions = 0
+
+# --- Rig ---
+# Single rig for the container. The rig root is the validation-pack directory
+# itself; formulas live alongside it in the gc-formulas pack.
+# dolt_host/dolt_port: dolt SQL server default (3306). The entrypoint or
+# run-scenario.sh is responsible for starting dolt before gc/bd commands run.
+
+[[rigs]]
+name = "validation"
+path = "/home/agent/validation-pack"
+dolt_host = "127.0.0.1"
+dolt_port = "3306"
+
+# --- Daemon ---
+[daemon]
+formula_v2 = true

@@ -12,5 +12,8 @@ services:
       # refresh tokens on the writable in-container copy without touching the
       # host file. See validation-pack-design.md "OAuth handling".
       - ~/.claude/.credentials.json:/mnt/host-claude/credentials.json:ro
+    # To vary city config per iteration without rebuilding image layers, add
+    # the following entry to the volumes list above and provide the override file:
+    # - ./city.override.toml:/home/agent/validation-pack/city.toml:ro
     # No `command:` -- scenario id arrives via:
     #   docker compose run --rm validation <scenario-id>
