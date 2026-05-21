@@ -247,31 +247,41 @@ except Exception:
         return "${spawn_rc}"
     fi
 
-    # Wait for agents to reach WAITING state (Claude welcome rendered + idle
-    # at the prompt). ntm's --prompt flag on spawn delivers the prompt before
-    # Claude is ready, so we wait + send separately. ntm activity --json shows
-    # per-pane state; WAITING means the agent is ready for input.
+    # Wait for Claude's welcome screen to finish rendering before delivering
+    # the kickoff prompt. ntm activity's state machine reports state changes
+    # during init that don't reliably reach "WAITING" at the moment Claude
+    # is ready for input, so we check the pane content directly for Claude's
+    # input-ready marker: the "bypass permissions on" footer text only appears
+    # once Claude has rendered its main UI and is at the input box.
     #
-    # Timeout 90s: Claude welcome typically renders in 5-15s; extra headroom
-    # for slow startups (image pull warmup, first-run config writes).
+    # Upstream bug: ntm spawn's `--prompt` flag uses a 200ms sleep before
+    # delivery, which races Claude's 5-15s welcome render and drops the
+    # prompt. Filed as Dicklesworthstone/ntm#158. Workaround here is a
+    # pane-content poll; remove once that issue is fixed and ntm's --prompt
+    # waits properly.
+    #
+    # Timeout 120s: Claude welcome typically renders in 5-15s; extra headroom
+    # for slow first-run startups (config writes, OAuth refresh, etc.).
     local waited=0
-    local max_wait=90
+    local max_wait=120
+    local ready_marker="bypass permissions on"
     while (( waited < max_wait )); do
-        local activity ready_count
-        activity="$(ntm activity "${session}" --json 2>/dev/null || echo '{}')"
-        ready_count="$(printf '%s' "${activity}" \
-            | jq '[.agents[]? | select(.state == "WAITING")] | length' 2>/dev/null \
-            || echo 0)"
-        if [[ "${ready_count}" -ge "${count}" ]]; then
-            echo "[shim_spawn] ${count} agent(s) ready after ${waited}s; delivering prompt"
+        local pane_content
+        pane_content="$(tmux capture-pane -t "${session}" -p 2>/dev/null || echo '')"
+        if printf '%s' "${pane_content}" | grep -qF "${ready_marker}"; then
+            echo "[shim_spawn] agent ready (marker '${ready_marker}' detected) after ${waited}s; delivering prompt"
+            # Give Claude one more beat to settle into the input box even
+            # after the footer renders (avoids racing the last few keystrokes
+            # of init).
+            sleep 2
             break
         fi
-        sleep 3
-        waited=$(( waited + 3 ))
+        sleep 2
+        waited=$(( waited + 2 ))
     done
 
     if (( waited >= max_wait )); then
-        echo "[shim_spawn] WARNING: agents not all ready after ${max_wait}s; sending prompt anyway" >&2
+        echo "[shim_spawn] WARNING: ready marker not seen after ${max_wait}s; sending prompt anyway" >&2
     fi
 
     ntm send "${session}" \
