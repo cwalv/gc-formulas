@@ -1,0 +1,16 @@
+# Compose file lives inside validation-pack/, but the build context is the
+# pack root (..) so the Dockerfile's `COPY validation-pack/ ...` resolves.
+services:
+  validation:
+    build:
+      context: ..
+      dockerfile: validation-pack/Dockerfile
+    user: "1000:1000"
+    volumes:
+      # Host credentials mounted read-only at a staging path. entrypoint.sh
+      # copies to ~/.claude/.credentials.json (mode 600) so Claude Code can
+      # refresh tokens on the writable in-container copy without touching the
+      # host file. See validation-pack-design.md "OAuth handling".
+      - ~/.claude/.credentials.json:/mnt/host-claude/credentials.json:ro
+    # No `command:` -- scenario id arrives via:
+    #   docker compose run --rm validation <scenario-id>
