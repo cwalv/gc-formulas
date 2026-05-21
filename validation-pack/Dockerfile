@@ -93,6 +93,16 @@ RUN git config --global user.name  "agent" \
 # block no longer carries those settings (removed during this bead).
 RUN cd /home/agent/validation-pack && bd init --prefix=vp --non-interactive
 
+# Pre-seed Claude Code's user-level config so the first-run wizard doesn't
+# block the spawned agent on theme/UI choices. Without this, claude in a
+# fresh tmux pane sits at "Choose your theme" forever, gc session-start
+# hits its 60s timeout, and the implementer never executes. ~/.claude.json
+# (at $HOME root, not under .claude/) is the file Claude Code reads to
+# determine onboarding state. Setting `theme` + `numStartups` > 0 skips
+# the wizard entirely.
+RUN printf '{"numStartups":1,"theme":"dark","hasCompletedOnboarding":true,"hasSeenTasksHint":true,"autoUpdates":false}\n' \
+    > /home/agent/.claude.json
+
 # Register gc's required custom issue types in bd's types.custom config so
 # gc sling / gc session / gc converge accept beads of those types. Without
 # this, gc fails with "invalid issue type: <name>" (convoy, session, etc.)
