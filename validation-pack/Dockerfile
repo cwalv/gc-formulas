@@ -91,7 +91,8 @@ RUN git config --global user.name  "agent" \
 # The prefix "vp" (validation-pack) is the shared namespace for all scenarios.
 # gc does NOT need dolt_host/dolt_port for embedded-mode bd — city.toml's rig
 # block no longer carries those settings (removed during this bead).
-RUN cd /home/agent/validation-pack && bd init --prefix=vp --non-interactive
+RUN cd /home/agent/validation-pack && bd init --prefix=vp --non-interactive \
+    && bd config set dolt.auto-commit on
 
 # Pre-seed Claude Code's user-level config so the first-run wizard doesn't
 # block the spawned agent on theme/UI choices. Without this, claude in a
