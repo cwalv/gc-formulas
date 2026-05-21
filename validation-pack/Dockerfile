@@ -124,7 +124,7 @@ RUN cd /home/agent/validation-pack && bd init --prefix=vp --non-interactive \
 # (at $HOME root, not under .claude/) is the file Claude Code reads to
 # determine onboarding state. Setting `theme` + `numStartups` > 0 skips
 # the wizard entirely.
-RUN printf '{"numStartups":1,"theme":"dark","hasCompletedOnboarding":true,"hasSeenTasksHint":true,"autoUpdates":false}\n' \
+RUN printf '{"numStartups":1,"theme":"dark","hasCompletedOnboarding":true,"hasSeenTasksHint":true,"autoUpdates":false,"bypassPermissionsModeAccepted":true}\n' \
     > /home/agent/.claude.json
 
 # Register gc's required custom issue types in bd's types.custom config so

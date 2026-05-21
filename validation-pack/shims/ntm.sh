@@ -197,6 +197,25 @@ shim_spawn() {
         tmux kill-session -t "${session}" 2>/dev/null || true
     fi
 
+    # Pre-create the session's project directory under projects_base. `ntm
+    # spawn` resolves session_name → projects_base/session_name and, if the
+    # directory does not exist, prompts interactively ("Create it? [y/N]").
+    # In a non-TTY container that prompt reads no stdin and aborts the spawn.
+    # Creating the directory ourselves bypasses the prompt entirely.
+    local projects_base
+    projects_base="$(python3 -c "
+import sys, re, os
+try:
+    cfg = open(os.environ['NTM_CONFIG']).read()
+    m = re.search(r'projects_base\s*=\s*[\"\\']([^\"\\']+)', cfg)
+    print(m.group(1) if m else '')
+except Exception:
+    print('')
+" 2>/dev/null)"
+    if [[ -n "${projects_base}" ]]; then
+        mkdir -p "${projects_base}/${session}"
+    fi
+
     # ntm ships built-in personas (implementer, architect, etc.) whose system
     # prompts don't match this validation-pack's lifecycle. Our project-level
     # .ntm/personas.toml declares vp-* names to avoid shadowing — so when
@@ -208,10 +227,15 @@ shim_spawn() {
 
     echo "[shim_spawn] creating ntm session: ${session} persona=${ntm_persona} count=${count}"
 
-    # ntm spawn creates the tmux session and starts Claude panes with the
-    # persona's system prompt pre-loaded. --no-user skips the human pane.
-    # --prompt is NOT used here — we send the task separately below so we can
-    # reference the actual bead IDs that are only known post-wisp.
+    # Minimal kick-off prompt. The persona system prompt (loaded by ntm via
+    # the --persona flag, from .ntm/personas.toml's system_prompt field)
+    # already contains the full work-loop. The user message here just tells
+    # the agent to begin. Persona-specific routing (validation/foreman vs
+    # validation/implementer etc.) is baked into the persona prompt itself,
+    # so this kick-off doesn't need to template by role.
+    local loop_prompt
+    loop_prompt="Begin. Follow the work-loop in your system prompt: poll your pool, claim ready beads, execute each one per its description, and exit cleanly when the pool is empty."
+
     ntm spawn "${session}" \
         --persona="${ntm_persona}:${count}" \
         --no-user \
@@ -223,31 +247,33 @@ shim_spawn() {
         return "${spawn_rc}"
     fi
 
-    # Build the task prompt. The ntm-implementer persona knows the bd lifecycle
-    # but needs a routing hint so it queries the right metadata field.
-    # Routing key is shared across shims: scenario drivers write
-    # gc.routed_to=validation/<persona>; both gc and ntm personas query that key.
-    # The scenario driver sets this metadata before calling shim_spawn.
-    local loop_prompt
-    loop_prompt="$(cat <<'PROMPT'
-You are running in a one-shot validation container. Your task:
+    # Wait for agents to reach WAITING state (Claude welcome rendered + idle
+    # at the prompt). ntm's --prompt flag on spawn delivers the prompt before
+    # Claude is ready, so we wait + send separately. ntm activity --json shows
+    # per-pane state; WAITING means the agent is ready for input.
+    #
+    # Timeout 90s: Claude welcome typically renders in 5-15s; extra headroom
+    # for slow startups (image pull warmup, first-run config writes).
+    local waited=0
+    local max_wait=90
+    while (( waited < max_wait )); do
+        local activity ready_count
+        activity="$(ntm activity "${session}" --json 2>/dev/null || echo '{}')"
+        ready_count="$(printf '%s' "${activity}" \
+            | jq '[.agents[]? | select(.state == "WAITING")] | length' 2>/dev/null \
+            || echo 0)"
+        if [[ "${ready_count}" -ge "${count}" ]]; then
+            echo "[shim_spawn] ${count} agent(s) ready after ${waited}s; delivering prompt"
+            break
+        fi
+        sleep 3
+        waited=$(( waited + 3 ))
+    done
 
-1. Find ready beads routed to you:
-   bd ready --include-ephemeral --metadata-field gc.routed_to=validation/implementer --unassigned
-2. For each bead found:
-   a. Claim it: bd update <id> --claim
-   b. Read it: bd show <id>
-   c. Execute the work described in the bead.
-   d. Append your output as notes: bd update <id> --append-notes "<your output>"
-   e. Close it: bd close <id> --reason="completed"
-3. After each close, check for more ready beads and repeat.
-4. When bd ready returns an empty list (no more beads), you are done. Exit cleanly.
+    if (( waited >= max_wait )); then
+        echo "[shim_spawn] WARNING: agents not all ready after ${max_wait}s; sending prompt anyway" >&2
+    fi
 
-Work through all assigned beads in order. Do not stop until the queue is empty.
-PROMPT
-)"
-
-    echo "[shim_spawn] sending task prompt to all agents in session ${session}..."
     ntm send "${session}" \
         --all \
         --force-non-interactive \
@@ -260,7 +286,7 @@ PROMPT
         return "${send_rc}"
     fi
 
-    echo "[shim_spawn] session ${session} running with ${count} agent pane(s)"
+    echo "[shim_spawn] session ${session} running with ${count} agent pane(s) — prompt delivered"
     return 0
 }
 
