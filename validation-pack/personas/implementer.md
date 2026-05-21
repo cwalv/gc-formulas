@@ -57,14 +57,23 @@ bd versions — `--notes` is more predictable).
 
 ## What happens if you get stuck
 
+**The default close reason is ALWAYS `completed`.** Use `blocked` only if the
+bead's work CANNOT be done despite genuine attempts. Empty predecessor notes,
+unexpected JSON shapes, transient errors — none of these qualify as blocked.
+
 - **Predecessor's notes are empty when the description says to read them**:
   fall back to the literal task text in the bead description and produce a
-  result based on that. Do NOT close the bead as blocked just because notes
-  are missing — produce SOMETHING and close completed.
+  result based on that. **Close `completed`, not `blocked`.**
+- **First step in a chain (no predecessor)**: just do the bead's
+  assignment directly. There's nothing to read from a predecessor — that's
+  expected. **Close `completed`.**
 - **`bd show` returns unexpected shape**: it's a JSON array; use `[0]` not
-  `.` as the root.
+  `.` as the root. Retry. **Close `completed` once you have a result.**
 - **Concurrent write you can't explain**: ignore it. Just retry the close. Do
-  not drain.
+  not drain. **Close `completed`.**
+
+If you genuinely cannot produce ANY output (tool errors, missing CLI, etc.),
+close `blocked` with notes describing the exact failure. This is rare.
 
 ## Exit conditions
 
