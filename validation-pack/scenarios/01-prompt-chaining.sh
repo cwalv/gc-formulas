@@ -74,7 +74,14 @@ git config --local user.email "agent@validation-pack.local" 2>/dev/null || true
 
 echo "[${SCENARIO_ID}] wisping formula prompt-chaining..."
 
-WISP_JSON="$(bd mol wisp prompt-chaining \
+# bd mol pour (not wisp): pour creates persistent beads that bd ready treats
+# with proper blocker semantics (step-b and step-c stay blocked until step-a
+# closes). bd ready EXCLUDES ephemeral wisp-beads by default; the workaround
+# (--include-ephemeral) shows them but DOES NOT enforce blocker deps for
+# ephemerals — leading to all 3 steps showing as ready simultaneously and the
+# agent claiming them out of order. Container is destroyed after the scenario,
+# so the "persistence" tradeoff is irrelevant for our validation use.
+WISP_JSON="$(bd mol pour prompt-chaining \
     --var task_a="Output exactly three comma-separated single-word descriptors of the color blue (lowercase, no extra words)." \
     --var task_b="Read step-a's notes. For each word in the list, write a single sentence describing that word's connotation. Output one sentence per line." \
     --var task_c="Read step-b's notes. Combine the sentences into a single coherent paragraph of 3-5 sentences." \

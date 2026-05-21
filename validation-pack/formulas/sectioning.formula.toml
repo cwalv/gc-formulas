@@ -1,0 +1,255 @@
+description = """
+Parallelization-sectioning validation formula — Anthropic catalog pattern 3.
+
+This is the canonical validation of the parallelization (sectioning) workflow
+pattern as described in Anthropic's *Building Effective Agents*. It materializes
+4 beads: 3 independent parallel slices (step-slice-1, step-slice-2,
+step-slice-3) with no deps between them, and a single join bead (step-join) that
+depends on all three slices.
+
+The three slice beads become ready simultaneously. Three implementer workers can
+claim them concurrently via atomic `bd update --claim`; the substrate prevents
+double-claim. The join bead is blocked by the substrate until all three slices
+close — it never appears in `bd ready` until they do.
+
+Task chosen: each slice generates one haiku (one per primary color — blue, red,
+green). The join bead collects the three haikus into a numbered list. This
+separable, concrete, non-overlapping work cleanly demonstrates sectioning:
+subtasks that can be done simultaneously with no shared state, aggregated at the
+end.
+
+NOTE: `slice_count` is declared as a var but is not used dynamically to generate
+steps — the formula model does not support generative step counts. The field
+exists as documentation of intent: a future formula engine or a runtime wrapper
+that re-pours with N slices could honour it. For now, 3 slices are hard-coded.
+
+This formula is part of the validation pack that exercises each Anthropic
+workflow pattern end-to-end against a live bd substrate inside the validation
+container. The success predicate for this scenario (checked by
+verify_bead_state.py) is: all three slice beads closed with reason `completed`
+(in any mutual order), then join bead closed with reason `completed`."""
+
+formula = "sectioning"
+version = 1
+
+# Materialize step children even when instantiated via `bd mol wisp`. Wisps
+# default to root-only (per bd c459812e, 2026-03-02). The validation pack runs
+# scenarios ephemerally (container destroyed after each scenario), so wisp is
+# the right semantic fit, but pour=true is required for the step beads to be
+# materialized under it. Also harmless under `bd mol pour`.
+pour = true
+
+[vars]
+[vars.task_template]
+description = "Text describing the parallel work pattern — applied uniformly to all slices (documents the shape; each slice has a distinct concrete task hard-coded in the step description)"
+required = true
+
+[vars.slice_count]
+description = "Intended number of parallel slices (documentation only — steps are hard-coded at 3; future formula evolution or a pour wrapper can use this to re-generate with N slices)"
+default = "3"
+
+[vars.assignee]
+description = "Persona to route each step to"
+default = "implementer"
+
+[[steps]]
+id = "step-slice-1"
+title = "Slice 1: generate a haiku about blue"
+# No `needs` — independent of slice-2 and slice-3. All three slices are ready
+# simultaneously; the substrate hands them out to whichever workers claim first.
+description = """
+You are one of three parallel workers executing slice 1 of 3 in a
+parallelization-sectioning scenario.
+
+**Task template context:** {{task_template}}
+
+**Your concrete assignment:** Generate exactly one one-line haiku about the
+color blue. A one-line haiku is written as a single line with the three
+five-seven-five syllable phrases separated by em-dashes, e.g.:
+`silent winter lake — pale moon on frozen waves — cold breath disappears`
+
+Do not generate more than one haiku. Do not include explanation or commentary.
+
+**Lifecycle:**
+
+1. Read this bead:
+   ```bash
+   bd show <this-bead-id>
+   ```
+
+2. Claim it (open → hooked):
+   ```bash
+   bd update <this-bead-id> --claim
+   ```
+
+3. Generate the haiku.
+
+4. Record it in this bead's notes:
+   ```bash
+   bd update <this-bead-id> --append-notes "Haiku: <your one-line haiku here>"
+   ```
+
+5. Close with reason `completed`:
+   ```bash
+   bd close <this-bead-id> --reason="completed"
+   ```
+
+**Exit criteria:** Bead is `closed` with reason `completed` and notes contain
+exactly one haiku about blue."""
+
+[[steps]]
+id = "step-slice-2"
+title = "Slice 2: generate a haiku about red"
+# No `needs` — independent of slice-1 and slice-3.
+description = """
+You are one of three parallel workers executing slice 2 of 3 in a
+parallelization-sectioning scenario.
+
+**Task template context:** {{task_template}}
+
+**Your concrete assignment:** Generate exactly one one-line haiku about the
+color red. A one-line haiku is written as a single line with the three
+five-seven-five syllable phrases separated by em-dashes, e.g.:
+`silent winter lake — pale moon on frozen waves — cold breath disappears`
+
+Do not generate more than one haiku. Do not include explanation or commentary.
+
+**Lifecycle:**
+
+1. Read this bead:
+   ```bash
+   bd show <this-bead-id>
+   ```
+
+2. Claim it (open → hooked):
+   ```bash
+   bd update <this-bead-id> --claim
+   ```
+
+3. Generate the haiku.
+
+4. Record it in this bead's notes:
+   ```bash
+   bd update <this-bead-id> --append-notes "Haiku: <your one-line haiku here>"
+   ```
+
+5. Close with reason `completed`:
+   ```bash
+   bd close <this-bead-id> --reason="completed"
+   ```
+
+**Exit criteria:** Bead is `closed` with reason `completed` and notes contain
+exactly one haiku about red."""
+
+[[steps]]
+id = "step-slice-3"
+title = "Slice 3: generate a haiku about green"
+# No `needs` — independent of slice-1 and slice-2.
+description = """
+You are one of three parallel workers executing slice 3 of 3 in a
+parallelization-sectioning scenario.
+
+**Task template context:** {{task_template}}
+
+**Your concrete assignment:** Generate exactly one one-line haiku about the
+color green. A one-line haiku is written as a single line with the three
+five-seven-five syllable phrases separated by em-dashes, e.g.:
+`silent winter lake — pale moon on frozen waves — cold breath disappears`
+
+Do not generate more than one haiku. Do not include explanation or commentary.
+
+**Lifecycle:**
+
+1. Read this bead:
+   ```bash
+   bd show <this-bead-id>
+   ```
+
+2. Claim it (open → hooked):
+   ```bash
+   bd update <this-bead-id> --claim
+   ```
+
+3. Generate the haiku.
+
+4. Record it in this bead's notes:
+   ```bash
+   bd update <this-bead-id> --append-notes "Haiku: <your one-line haiku here>"
+   ```
+
+5. Close with reason `completed`:
+   ```bash
+   bd close <this-bead-id> --reason="completed"
+   ```
+
+**Exit criteria:** Bead is `closed` with reason `completed` and notes contain
+exactly one haiku about green."""
+
+[[steps]]
+id = "step-join"
+title = "Join: combine the three haikus into a numbered list"
+needs = ["step-slice-1", "step-slice-2", "step-slice-3"]
+# Blocked by the substrate until ALL THREE slice beads are closed. The join bead
+# never appears in `bd ready` until all deps are satisfied. This is the
+# sectioning pattern's aggregation gate.
+description = """
+You are the join step in a parallelization-sectioning scenario. This bead only
+becomes ready after all three parallel slice beads (step-slice-1, step-slice-2,
+step-slice-3) have closed. That blocking is enforced by the substrate — you
+cannot claim this bead until all three slices are done.
+
+**Your assignment:** Read the notes from each of the three slice beads and
+combine their haikus into one numbered list.
+
+**Lifecycle:**
+
+1. Read this bead:
+   ```bash
+   bd show <this-bead-id>
+   ```
+
+2. Claim it (open → hooked):
+   ```bash
+   bd update <this-bead-id> --claim
+   ```
+
+3. Find the three slice bead IDs via the dependency graph:
+   ```bash
+   bd show <this-bead-id> --json | jq '.deps'
+   ```
+
+4. Read each slice bead's notes:
+   ```bash
+   bd show <slice-1-bead-id> --json | jq '.notes'
+   bd show <slice-2-bead-id> --json | jq '.notes'
+   bd show <slice-3-bead-id> --json | jq '.notes'
+   ```
+
+5. Combine the three haikus into a single numbered list (one haiku per line):
+   ```
+   1. <haiku from slice 1>
+   2. <haiku from slice 2>
+   3. <haiku from slice 3>
+   ```
+
+6. Record the numbered list in this bead's notes:
+   ```bash
+   bd update <this-bead-id> --append-notes "$(cat <<'EOF'
+   Combined haikus:
+   1. <haiku from slice 1>
+   2. <haiku from slice 2>
+   3. <haiku from slice 3>
+   EOF
+   )"
+   ```
+
+7. Close with reason `completed`:
+   ```bash
+   bd close <this-bead-id> --reason="completed"
+   ```
+
+**Exit criteria:** Bead is `closed` with reason `completed` and notes contain
+a numbered list of all three haikus (blue, red, green). All four beads
+(three slices + this join) are now terminal. The verification predicate in
+verify_bead_state.py will assert that all slices are closed and the join
+closed after them."""
