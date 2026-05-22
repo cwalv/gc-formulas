@@ -227,14 +227,32 @@ except Exception:
 
     echo "[shim_spawn] creating ntm session: ${session} persona=${ntm_persona} count=${count}"
 
-    # Minimal kick-off prompt. The persona system prompt (loaded by ntm via
-    # the --persona flag, from .ntm/personas.toml's system_prompt field)
-    # already contains the full work-loop. The user message here just tells
-    # the agent to begin. Persona-specific routing (validation/foreman vs
-    # validation/implementer etc.) is baked into the persona prompt itself,
-    # so this kick-off doesn't need to template by role.
+    # Kick-off prompt. The persona system prompt (loaded by ntm via the
+    # --persona flag, from .ntm/personas.toml's system_prompt field) already
+    # contains the full work-loop. The user message here tells the agent to
+    # begin AND emphasises strict step-following — under haiku in ntm, the
+    # agent will otherwise read the bead description, identify the close
+    # instruction (always last), and short-circuit the earlier numbered steps.
+    # (vp02n and vp06n exhibited this: foreman closed step-classify without
+    # writing routing metadata; evaluator approved round 1 without emitting
+    # the forced-iterate marker.)
     local loop_prompt
-    loop_prompt="Begin. Follow the work-loop in your system prompt: poll your pool, claim ready beads, execute each one per its description, and exit cleanly when the pool is empty."
+    loop_prompt="Begin work.
+
+CRITICAL: Follow your system-prompt's work loop. For each bead you claim,
+execute EVERY numbered step in the bead description in the order it lists
+them. The close step is ALWAYS the LAST step; do not close until every
+earlier step has produced its artifact (metadata writes, note appends,
+sibling lookups, etc.). Closing without doing the earlier steps is the
+single most common failure mode and the verifier will catch it.
+
+If a step says 'write metadata onto bead X', actually run that bd update
+command and confirm it succeeded before moving on. If a step says 'append
+a specific marker note', literally include that marker substring in your
+notes.
+
+Poll your pool, claim, execute the description fully, then close. Repeat
+until the queue is empty, then exit cleanly."
 
     ntm spawn "${session}" \
         --persona="${ntm_persona}:${count}" \

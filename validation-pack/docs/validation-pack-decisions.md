@@ -198,3 +198,34 @@ The ntm fix (issue #158) would obviate this — once `--prompt` waits for ready,
 **Chosen: A** (with explicit acknowledgement that we'll fold to C if/when this drift gets painful).
 
 **Why:** Personas are short (~50 lines). The drift surface between gc and ntm is small but specific (gc has `gc runtime drain-ack`, `gc hook`; ntm doesn't). C is more elegant but requires templating infrastructure we don't have. B is "C-lite" via documentation but the persona is still distinct in practice. A is the cheapest path to ntm coverage; if both shims stabilise and the personas keep needing the same edits, fold to C.
+
+## Observation: ntm parallel-agent scenarios lose bd state
+
+**Symptom (vp03n, vp04n):** scenarios that `shim_spawn implementer 3` (sectioning, voting — three concurrent implementers) end with `bd list` reporting **zero** beads, even though the scenario driver successfully wisped 5 beads and routed them with `bd update --set-metadata`. The agents see an empty queue, report "Queue is empty. All work complete.", and exit; the scenario fails because the target bead never closes.
+
+The single-agent ntm scenarios (vp07n PASS, vp05n still in flight at writing time) keep their beads.
+
+**Hypothesis:** under gc, every `bd …` call routes through gc's control-dispatcher which serialises writes against a single embedded-dolt instance. Under ntm, each Claude pane spawns its own bd subprocess directly, and N concurrent bds racing on the same `.beads/` directory exhibit the same JSONL-race behaviour we saw at bd v1.0.4 — even on v1.0.3, multi-writer raciness isn't fully fixed when each bd is its own process. The `BEADS_EXPORT_AUTO=false` mitigation in the Dockerfile silences one side of the race but doesn't cover this many concurrent writers.
+
+**Not yet decided.** Options being weighed:
+- A. Skip parallel-agent ntm scenarios (03, 04) — accept that ntm doesn't support N concurrent implementers writing to bd directly. Document the gap; validate gc only for the parallelization patterns.
+- B. Serialise ntm agent spawn (one at a time) so the queue drains sequentially even when the scenario "wants" parallelism. Defeats the parallelism point but preserves the rest of the scenario shape.
+- C. Bring up a single shared dolt sql-server in the ntm entrypoint and have all bd processes connect to it instead of using the embedded mode. Bigger lift but fixes the substrate properly.
+- D. File an upstream bd issue and live with the gap until it lands.
+
+Leaning toward A short-term + D long-term, with the gap captured in the validation-pack README so the gc/ntm coverage asymmetry is visible.
+
+## Observation: ntm haiku skips multi-step bead descriptions
+
+**Symptom (vp02n, vp06n):** scenarios whose bead description is a numbered N-step list (foreman: classify + find sibling + write metadata + close; evaluator round 1: forced iterate) end with the bead closed using the right reason, but the *earlier* steps weren't executed. The foreman closes step-classify with `reason=classified` but never writes `gc.routed_to` onto step-execute. The evaluator approves round 1 without emitting the `iterate: forced-round-1:` marker.
+
+Both PASS under SHIM=gc with the same haiku model and the same bead description.
+
+**Hypothesis:** under gc the persona is loaded via `gc session new`, which runs Claude inside gc's tmux session with the gc-hook + gc-supervisor context. The supervisor may be re-priming the session as it idles, keeping the agent focused. Under ntm, the persona is a static system-prompt file and the kickoff is a one-shot user message; haiku then reads the bead description, locks onto the close instruction (final step), and short-circuits the multi-step lead-up.
+
+**Not yet decided.** Options:
+- A. Strengthen the kickoff prompt: "Follow EVERY numbered step in the bead description in order. The close is always the LAST step; do not close until the prior steps have produced their artifacts."
+- B. Restructure the bead descriptions to be less close-anchored.
+- C. Switch the ntm persona to a more compliant model (sonnet/opus). Sonnet earlier failed scenario 07's verbosity assertion, but that's orthogonal to the multi-step-following problem.
+
+Leaning toward A first (smallest change, doesn't fight the model); C as fallback.
