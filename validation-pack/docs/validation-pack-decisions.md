@@ -230,6 +230,19 @@ Both PASS under SHIM=gc with the same haiku model and the same bead description.
 
 Leaning toward A first (smallest change, doesn't fight the model); C as fallback.
 
+## Correction: the vp02n failure was NOT multi-process write-loss
+
+An earlier section attributed the vp02n failure (foreman closes step-classify with `reason=classified` but `step-execute.metadata['gc.routed_to']` is null) to "multi-process bd write-loss". The manual walkthrough proved that wrong:
+
+1. With `BEADS_EXPORT_AUTO=false`, a write from bd invocation A is visible from a fresh bd invocation B, even with concurrent reads in the middle. The embedded-dolt state persists across bd invocations regardless of the JSONL sync flag.
+2. The real cause was two persona / formula bugs that compounded:
+   - bd#4082 — `--include-ephemeral --metadata-field` ignores the filter, so the foreman picked the wrong bead first.
+   - The formula's step-classify description told the foreman `jq '.children'` on the parent; bd's JSON shape uses `dependents`, so the sibling lookup returned null and the `bd update ${STEP_EXECUTE_ID}` write ran against an empty variable. The metadata was **never written**, not lost.
+
+So `BEADS_EXPORT_AUTO=false` is **sufficient** for the multi-writer case (within bd v1.0.3's single-server semantics, which is what we have). The "multi-process bd write-loss" framing was an artifact of misreading the observable state.
+
+The remaining multi-pane symptoms (sectioning slices not all closed, voting voters not all closed) are still suspect — likely the same `--include-ephemeral` filter bug interacting with multiple agents claiming wrong beads, or the persona work-loop terminating before all work was done. Re-investigate when the bd#4082 fix lands or the jq-workaround is propagated to all personas + scenarios.
+
 ## Observation update: strengthening kickoff + patching the bead description with literal sibling IDs DID NOT fix vp02n
 
 I tried option A (strengthen kickoff with explicit step-ordering preamble) and a second mitigation: patch step-classify's description after pour to embed the literal step-execute bead ID, removing the dep-graph lookup step entirely. Both runs still ended with the foreman closing step-classify with `reason=classified` but NOT writing `gc.routed_to` on step-execute. Three sequential runs, same outcome.
