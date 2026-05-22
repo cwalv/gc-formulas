@@ -221,7 +221,7 @@ Leaning toward A short-term + D long-term, with the gap captured in the validati
 
 Both PASS under SHIM=gc with the same haiku model and the same bead description.
 
-**Hypothesis:** under gc the persona is loaded via `gc session new`, which runs Claude inside gc's tmux session with the gc-hook + gc-supervisor context. The supervisor may be re-priming the session as it idles, keeping the agent focused. Under ntm, the persona is a static system-prompt file and the kickoff is a one-shot user message; haiku then reads the bead description, locks onto the close instruction (final step), and short-circuits the multi-step lead-up.
+**Hypothesis:** under gc the persona is loaded via `gc session new`, which runs Claude inside gc's tmux session with the gc-hook + gc-supervisor context. **Hypothesis (unverified):** the supervisor may be re-priming the session as it idles, keeping the agent focused. Under ntm, the persona is a static system-prompt file and the kickoff is a one-shot user message; haiku then reads the bead description, locks onto the close instruction (final step), and short-circuits the multi-step lead-up.
 
 **Not yet decided.** Options:
 - A. Strengthen the kickoff prompt: "Follow EVERY numbered step in the bead description in order. The close is always the LAST step; do not close until the prior steps have produced their artifacts."
@@ -242,6 +242,8 @@ An earlier section attributed the vp02n failure (foreman closes step-classify wi
 So `BEADS_EXPORT_AUTO=false` is **sufficient** for the multi-writer case (within bd v1.0.3's single-server semantics, which is what we have). The "multi-process bd write-loss" framing was an artifact of misreading the observable state.
 
 The remaining multi-pane symptoms (sectioning slices not all closed, voting voters not all closed) are still suspect — likely the same `--include-ephemeral` filter bug interacting with multiple agents claiming wrong beads, or the persona work-loop terminating before all work was done. Re-investigate when the bd#4082 fix lands or the jq-workaround is propagated to all personas + scenarios.
+
+> **SUPERSEDED by the Correction section above.** Keeping this paragraph as a record of what we thought before we proved otherwise; the substantive claims in it are wrong.
 
 ## Observation update: strengthening kickoff + patching the bead description with literal sibling IDs DID NOT fix vp02n
 
@@ -295,7 +297,7 @@ This is a separate work item; capturing here so it's not lost.
 | Scenario | gc shim | ntm shim | ntm root cause when failing |
 |---|---|---|---|
 | 01 prompt-chaining | PASS (earlier session) | not exercised | — |
-| 02 routing | PASS | FAIL | foreman closes step-classify without writing metadata on step-execute; metadata write either skipped or lost to JSONL race |
+| 02 routing | PASS | FAIL | bd#4082 metadata-filter bug + formula description used `.children` instead of `.dependents`; fixes: `--assignee` routing pattern + formula update + `bd comment` swap |
 | 03 sectioning | PASS | PARTIAL | step-join closes but 2/3 slices stay open (substrate concurrency wipes closes) |
 | 04 voting | PASS | PARTIAL | step-tally closes but voters stay open (substrate concurrency) |
 | 05 orchestrator-workers | PASS | PARTIAL | step-land closes but orchestrate + workers stay open (substrate concurrency) |

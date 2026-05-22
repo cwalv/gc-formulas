@@ -61,9 +61,9 @@ This bead is the single ping-pong unit for an evaluator-optimizer loop.
 3. Check the notes for any prior `iterate:` feedback from the evaluator. If
    this is the first pass, produce your initial draft. On subsequent passes,
    revise based on the evaluator's most recent `iterate:` note.
-4. Append your draft to the bead notes:
+4. Post your draft as a comment:
    ```bash
-   bd update <id> --append-notes "draft: <your output here>"
+   bd comment <id> "draft: <your output here>"
    ```
 5. Hand off to the evaluator — flip back to open and reroute:
    ```bash
@@ -81,8 +81,8 @@ Do NOT close this bead. Only the evaluator closes it.
 2. Claim it: `bd update <id> --claim`
 3. Count the number of `iterate:` lines in the notes. This is the iteration
    count so far.
-4. Review the most recent `draft:` entry in the notes against the task
-   requirements above.
+4. Review the most recent `draft:` entry in the comments (`bd show <id> --json | jq '.comments'`)
+   against the task requirements above.
 5. Decision:
 
    **Approve** — the draft meets the task requirements:

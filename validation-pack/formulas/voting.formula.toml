@@ -87,9 +87,9 @@ the majority.
 
 3. Answer the question above. Produce exactly one token (a digit or a single word).
 
-4. Record your answer in this bead's notes:
+4. Record your answer in a comment:
    ```bash
-   bd update <this-bead-id> --append-notes "Answer: <your answer>"
+   bd comment <this-bead-id> "Answer: <your answer>"
    ```
 
 5. Close with reason `completed`:
@@ -97,7 +97,7 @@ the majority.
    bd close <this-bead-id> --reason="completed"
    ```
 
-**Exit criteria:** Bead is `closed` with reason `completed` and notes contain
+**Exit criteria:** Bead is `closed` with reason `completed` and a comment contains
 exactly one "Answer: <token>" line."""
 
 [[steps]]
@@ -131,9 +131,9 @@ the majority.
 
 3. Answer the question above. Produce exactly one token (a digit or a single word).
 
-4. Record your answer in this bead's notes:
+4. Record your answer in a comment:
    ```bash
-   bd update <this-bead-id> --append-notes "Answer: <your answer>"
+   bd comment <this-bead-id> "Answer: <your answer>"
    ```
 
 5. Close with reason `completed`:
@@ -141,7 +141,7 @@ the majority.
    bd close <this-bead-id> --reason="completed"
    ```
 
-**Exit criteria:** Bead is `closed` with reason `completed` and notes contain
+**Exit criteria:** Bead is `closed` with reason `completed` and a comment contains
 exactly one "Answer: <token>" line."""
 
 [[steps]]
@@ -175,9 +175,9 @@ the majority.
 
 3. Answer the question above. Produce exactly one token (a digit or a single word).
 
-4. Record your answer in this bead's notes:
+4. Record your answer in a comment:
    ```bash
-   bd update <this-bead-id> --append-notes "Answer: <your answer>"
+   bd comment <this-bead-id> "Answer: <your answer>"
    ```
 
 5. Close with reason `completed`:
@@ -185,7 +185,7 @@ the majority.
    bd close <this-bead-id> --reason="completed"
    ```
 
-**Exit criteria:** Bead is `closed` with reason `completed` and notes contain
+**Exit criteria:** Bead is `closed` with reason `completed` and a comment contains
 exactly one "Answer: <token>" line."""
 
 [[steps]]
@@ -223,23 +223,23 @@ close with reason `tallied`.
    bd show <this-bead-id> --json | jq '.deps'
    ```
 
-4. Read each voter bead's notes:
+4. Read each voter bead's comments:
    ```bash
-   bd show <voter-1-bead-id> --json | jq '.notes'
-   bd show <voter-2-bead-id> --json | jq '.notes'
-   bd show <voter-3-bead-id> --json | jq '.notes'
+   bd show <voter-1-bead-id> --json | jq '.comments'
+   bd show <voter-2-bead-id> --json | jq '.comments'
+   bd show <voter-3-bead-id> --json | jq '.comments'
    ```
 
-5. Extract the answer token from each voter's notes (the value after "Answer: ").
+5. Extract the answer token from each voter's comments (the value after "Answer: ").
 
 6. Compute the majority answer:
    - If all three agree, the majority answer is that value.
    - If two of three agree, the majority answer is the value shared by the two.
    - If all three differ (no majority), record "no_majority".
 
-7. Record the tally in this bead's notes:
+7. Record the tally in a comment:
    ```bash
-   bd update <this-bead-id> --append-notes "$(cat <<'EOF'
+   bd comment <this-bead-id> "$(cat <<'EOF'
    Votes: <voter-1-answer>, <voter-2-answer>, <voter-3-answer>
    Majority: <majority-answer>
    EOF
@@ -251,7 +251,7 @@ close with reason `tallied`.
    bd close <this-bead-id> --reason="tallied"
    ```
 
-**Exit criteria:** Bead is `closed` with reason `tallied` and notes contain a
+**Exit criteria:** Bead is `closed` with reason `tallied` and a comment contains a
 "Majority: <answer>" line. The majority answer for the default voter prompt
 ("What is 2+2?") is "4". All four beads (three voters + this tally) are now
 terminal. The verification predicate in verify_bead_state.py will assert that all

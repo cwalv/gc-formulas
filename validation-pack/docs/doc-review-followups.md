@@ -16,56 +16,56 @@ three context docs (`gascity-focus-areas.md`, `ntm-multi-agent-tutorial.md`,
 
 ### Conflicts (high priority — false claims in current docs)
 
-- [ ] **A. Design doc's shim table cites `gc events --watch`; we use polling.**
+- [x] **A. Design doc's shim table cites `gc events --watch`; we use polling.**
   `validation-pack-design.md:44`. Replace the `gc events --watch --filter ...`
   cell with the actual polling approach, or add a "↳ see decisions doc"
   pointer.
 
-- [ ] **B. Design doc's "What works" cites `bd mol pour`; we switched to
+- [x] **B. Design doc's "What works" cites `bd mol pour`; we switched to
   `bd mol wisp` + `pour=true`.** `validation-pack-design.md:192`. Strike or
   date-stamp the "What works" pour bullet; wisp is the live decision.
 
-- [ ] **C. Decisions doc "Observation update" re-asserts write-loss AFTER
+- [x] **C. Decisions doc "Observation update" re-asserts write-loss AFTER
   the "Correction" overturned it.** `validation-pack-decisions.md:246-252`.
   Add a "Superseded by Correction above" marker, or delete the obsolete
   passage.
 
-- [ ] **D. Final coverage matrix attributes scenario 02 failures to "JSONL
+- [x] **D. Final coverage matrix attributes scenario 02 failures to "JSONL
   race"; real cause is bd#4082 + the `.children` vs `.dependents` field-
   name bug.** `validation-pack-decisions.md:299`. Update the scenario 02
   root-cause cell.
 
 ### Missing context
 
-- [ ] **E. Bare bead IDs used as labels without a one-phrase gloss.**
+- [x] **E. Bare bead IDs used as labels without a one-phrase gloss.**
   `validation-pack-design.md:15-16,160-161,171-172` (e.g. `fo-h8o87.1.8`,
   `fo-8fdbk`). Inline a one-phrase description, or add a "Referenced beads"
   subsection.
 
-- [ ] **F. `gc prime`, `gc hook`, `gc runtime drain-ack` used in the
+- [x] **F. `gc prime`, `gc hook`, `gc runtime drain-ack` used in the
   architecture doc without definition.** `agent-orchestration-architecture.md:115,127,139`.
   Add a one-line gloss per verb in the coordination-flow section, or a
   "gc CLI verbs used" aside.
 
-- [ ] **G. `sme2 mail gc-wisp-bj2` cited as source for scenario 8 input.**
+- [x] **G. `sme2 mail gc-wisp-bj2` cited as source for scenario 8 input.**
   `validation-pack-design.md:169`. Mail IDs are opaque + ephemeral —
   inline the gist (one sentence).
 
 ### Claims lacking evidence
 
-- [ ] **H. "mol-weave-work didn't complete in 10 minutes" presented as
+- [x] **H. "mol-weave-work didn't complete in 10 minutes" presented as
   structural evidence of workflow-runtime decay.**
   `agent-orchestration-architecture.md:62`. Single run; qualify with the
   conditions / mark as anecdotal rather than load-bearing.
 
-- [ ] **I. Hypothesis that gc's supervisor "re-primes the session" is
+- [x] **I. Hypothesis that gc's supervisor "re-primes the session" is
   stated as the mechanism without verification.**
   `validation-pack-decisions.md:224`. Mark explicitly as hypothesis, not
   fact.
 
 ### Superfluous / redundant detail
 
-- [ ] **J. Validation-pack-design.md "Validation findings" section has
+- [x] **J. Validation-pack-design.md "Validation findings" section has
   three overlapping accounts of scenario 01.** `validation-pack-design.md:177-318`.
   "What works", "ALL 7 scenarios PASS", "scenario 01 PASSES cleanly on
   v1.0.3" are sequential diary entries, not synthesized findings. Collapse
@@ -74,7 +74,7 @@ three context docs (`gascity-focus-areas.md`, `ntm-multi-agent-tutorial.md`,
 
 ### Stale cross-references
 
-- [ ] **K. Architecture doc links use `projects/foundations/docs/` paths.**
+- [x] **K. Architecture doc links use `projects/foundations/docs/` paths.**
   `agent-orchestration-architecture.md:18-21`. The three context docs were
   moved into this same directory; the `../../../projects/foundations/docs/`
   prefixes are broken. Update to `./<name>.md`.

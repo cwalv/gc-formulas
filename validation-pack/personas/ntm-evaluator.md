@@ -33,8 +33,11 @@ BEAD_ID=$(echo "$WORK" | python3 -c 'import json,sys; d=json.load(sys.stdin); pr
 # Step 3: claim
 bd update "$BEAD_ID" --claim
 
-# Step 4: read the full bead including notes
+# Step 4: read the full bead including notes and comments
 bd show "$BEAD_ID"
+# The implementer's draft is in the bead's comments (written via bd comment).
+# Find the most recent "draft:" entry with:
+#   bd show "$BEAD_ID" --json | jq '.comments'
 
 # Step 5: count prior iterations (tally 'iterate:' substring occurrences in notes)
 # Step 6: decide and act:

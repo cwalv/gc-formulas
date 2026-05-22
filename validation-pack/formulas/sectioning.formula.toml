@@ -84,9 +84,9 @@ Do not generate more than one haiku. Do not include explanation or commentary.
 
 3. Generate the haiku.
 
-4. Record it in this bead's notes:
+4. Record it in a comment:
    ```bash
-   bd update <this-bead-id> --append-notes "Haiku: <your one-line haiku here>"
+   bd comment <this-bead-id> "Haiku: <your one-line haiku here>"
    ```
 
 5. Close with reason `completed`:
@@ -94,7 +94,7 @@ Do not generate more than one haiku. Do not include explanation or commentary.
    bd close <this-bead-id> --reason="completed"
    ```
 
-**Exit criteria:** Bead is `closed` with reason `completed` and notes contain
+**Exit criteria:** Bead is `closed` with reason `completed` and a comment contains
 exactly one haiku about blue."""
 
 [[steps]]
@@ -128,9 +128,9 @@ Do not generate more than one haiku. Do not include explanation or commentary.
 
 3. Generate the haiku.
 
-4. Record it in this bead's notes:
+4. Record it in a comment:
    ```bash
-   bd update <this-bead-id> --append-notes "Haiku: <your one-line haiku here>"
+   bd comment <this-bead-id> "Haiku: <your one-line haiku here>"
    ```
 
 5. Close with reason `completed`:
@@ -138,7 +138,7 @@ Do not generate more than one haiku. Do not include explanation or commentary.
    bd close <this-bead-id> --reason="completed"
    ```
 
-**Exit criteria:** Bead is `closed` with reason `completed` and notes contain
+**Exit criteria:** Bead is `closed` with reason `completed` and a comment contains
 exactly one haiku about red."""
 
 [[steps]]
@@ -172,9 +172,9 @@ Do not generate more than one haiku. Do not include explanation or commentary.
 
 3. Generate the haiku.
 
-4. Record it in this bead's notes:
+4. Record it in a comment:
    ```bash
-   bd update <this-bead-id> --append-notes "Haiku: <your one-line haiku here>"
+   bd comment <this-bead-id> "Haiku: <your one-line haiku here>"
    ```
 
 5. Close with reason `completed`:
@@ -182,7 +182,7 @@ Do not generate more than one haiku. Do not include explanation or commentary.
    bd close <this-bead-id> --reason="completed"
    ```
 
-**Exit criteria:** Bead is `closed` with reason `completed` and notes contain
+**Exit criteria:** Bead is `closed` with reason `completed` and a comment contains
 exactly one haiku about green."""
 
 [[steps]]
@@ -218,11 +218,11 @@ combine their haikus into one numbered list.
    bd show <this-bead-id> --json | jq '.deps'
    ```
 
-4. Read each slice bead's notes:
+4. Read each slice bead's comments:
    ```bash
-   bd show <slice-1-bead-id> --json | jq '.notes'
-   bd show <slice-2-bead-id> --json | jq '.notes'
-   bd show <slice-3-bead-id> --json | jq '.notes'
+   bd show <slice-1-bead-id> --json | jq '.comments'
+   bd show <slice-2-bead-id> --json | jq '.comments'
+   bd show <slice-3-bead-id> --json | jq '.comments'
    ```
 
 5. Combine the three haikus into a single numbered list (one haiku per line):
@@ -232,9 +232,9 @@ combine their haikus into one numbered list.
    3. <haiku from slice 3>
    ```
 
-6. Record the numbered list in this bead's notes:
+6. Record the numbered list in a comment:
    ```bash
-   bd update <this-bead-id> --append-notes "$(cat <<'EOF'
+   bd comment <this-bead-id> "$(cat <<'EOF'
    Combined haikus:
    1. <haiku from slice 1>
    2. <haiku from slice 2>
@@ -248,7 +248,7 @@ combine their haikus into one numbered list.
    bd close <this-bead-id> --reason="completed"
    ```
 
-**Exit criteria:** Bead is `closed` with reason `completed` and notes contain
+**Exit criteria:** Bead is `closed` with reason `completed` and a comment contains
 a numbered list of all three haikus (blue, red, green). All four beads
 (three slices + this join) are now terminal. The verification predicate in
 verify_bead_state.py will assert that all slices are closed and the join

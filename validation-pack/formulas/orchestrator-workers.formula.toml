@@ -90,7 +90,7 @@ sub-tasks so that implementer agents can execute them in parallel.
 
 4. Record both sub-tasks in YOUR notes using exactly this format (one per line):
    ```bash
-   bd update <this-bead-id> --append-notes "$(cat <<'EOF'
+   bd comment <this-bead-id> "$(cat <<'EOF'
    SUBTASK-1: <description of sub-task 1>
    SUBTASK-2: <description of sub-task 2>
    EOF
@@ -110,7 +110,7 @@ sub-tasks so that implementer agents can execute them in parallel.
    gc runtime drain-ack
    ```
 
-**Exit criteria:** Bead is `closed` with reason `decomposed`; notes contain
+**Exit criteria:** Bead is `closed` with reason `decomposed`; a comment contains
 both `SUBTASK-1:` and `SUBTASK-2:` lines that the implementers can consume."""
 
 [[steps]]
@@ -144,20 +144,20 @@ is to execute SUBTASK-1 from the orchestrator's notes.
    The sibling whose title contains "Orchestrate" is step-orchestrate.
    Note its ID — call it ORCHESTRATE_ID.
 
-4. Read the orchestrator's notes to find your sub-task:
+4. Read the orchestrator's comments to find your sub-task:
    ```bash
-   bd show ${ORCHESTRATE_ID} --json | jq '.notes'
+   bd show ${ORCHESTRATE_ID} --json | jq '.comments'
    ```
    Find the line beginning `SUBTASK-1:`. That is your assignment.
 
 5. Execute the sub-task. Produce a concrete, self-contained result — a direct
    answer, fact, or artifact that the treehugger can validate.
 
-6. Record your result in this bead's notes:
+6. Record your result in a comment:
    ```bash
-   bd update <this-bead-id> --append-notes "Result: <your output here>"
+   bd comment <this-bead-id> "Result: <your output here>"
    ```
-   Be explicit — the treehugger reads these notes to validate your work.
+   Be explicit — the treehugger reads these comments to validate your work.
 
 7. Close this bead:
    ```bash
@@ -169,7 +169,7 @@ is to execute SUBTASK-1 from the orchestrator's notes.
    gc runtime drain-ack
    ```
 
-**Exit criteria:** Bead is `closed` with reason `completed`; notes contain
+**Exit criteria:** Bead is `closed` with reason `completed`; a comment contains
 a `Result:` line with a concrete, non-empty answer to SUBTASK-1."""
 
 [[steps]]
@@ -203,20 +203,20 @@ is to execute SUBTASK-2 from the orchestrator's notes.
    The sibling whose title contains "Orchestrate" is step-orchestrate.
    Note its ID — call it ORCHESTRATE_ID.
 
-4. Read the orchestrator's notes to find your sub-task:
+4. Read the orchestrator's comments to find your sub-task:
    ```bash
-   bd show ${ORCHESTRATE_ID} --json | jq '.notes'
+   bd show ${ORCHESTRATE_ID} --json | jq '.comments'
    ```
    Find the line beginning `SUBTASK-2:`. That is your assignment.
 
 5. Execute the sub-task. Produce a concrete, self-contained result — a direct
    answer, fact, or artifact that the treehugger can validate.
 
-6. Record your result in this bead's notes:
+6. Record your result in a comment:
    ```bash
-   bd update <this-bead-id> --append-notes "Result: <your output here>"
+   bd comment <this-bead-id> "Result: <your output here>"
    ```
-   Be explicit — the treehugger reads these notes to validate your work.
+   Be explicit — the treehugger reads these comments to validate your work.
 
 7. Close this bead:
    ```bash
@@ -228,7 +228,7 @@ is to execute SUBTASK-2 from the orchestrator's notes.
    gc runtime drain-ack
    ```
 
-**Exit criteria:** Bead is `closed` with reason `completed`; notes contain
+**Exit criteria:** Bead is `closed` with reason `completed`; a comment contains
 a `Result:` line with a concrete, non-empty answer to SUBTASK-2."""
 
 [[steps]]
@@ -260,28 +260,28 @@ sensible result, then land the work.
    ```
    The two dep IDs are step-implement-1 and step-implement-2 (order may vary).
 
-4. Read each implementer's notes:
+4. Read each implementer's comments:
    ```bash
-   bd show <implement-1-id> --json | jq '.notes'
-   bd show <implement-2-id> --json | jq '.notes'
+   bd show <implement-1-id> --json | jq '.comments'
+   bd show <implement-2-id> --json | jq '.comments'
    ```
 
 5. Validate both outputs:
-   - Each must contain a `Result:` line.
+   - Each must contain a `Result:` line (in its comments).
    - Each result must be non-empty (not blank, not "N/A", not a placeholder).
    - Each result must be sensibly responsive to the sub-task (not gibberish).
    - The two results must not be identical to each other.
 
    **If validation FAILS for either output:** do NOT close this bead. Flip it
-   back to open with a kickback note:
+   back to open and add a kickback comment:
    ```bash
-   bd update <this-bead-id> --status=open --append-notes "Kickback: <reason>"
+   bd update <this-bead-id> --status=open && bd comment <this-bead-id> "Kickback: <reason>"
    ```
    Then run drain-ack and stop. The foreman will re-route.
 
-6. If both outputs **pass** validation: write a one-line landing note:
+6. If both outputs **pass** validation: write a one-line landing comment:
    ```bash
-   bd update <this-bead-id> --append-notes "Landed: <one-sentence summary of both results>"
+   bd comment <this-bead-id> "Landed: <one-sentence summary of both results>"
    ```
 
 7. Close with reason `landed` — this is the terminal success signal for the
@@ -295,6 +295,6 @@ sensible result, then land the work.
    gc runtime drain-ack
    ```
 
-**Exit criteria:** Bead is `closed` with reason `landed`; notes contain a
+**Exit criteria:** Bead is `closed` with reason `landed`; a comment contains a
 `Landed:` line summarising both implementer results. This is the final success
 predicate that verify_bead_state.py asserts for scenario 05."""

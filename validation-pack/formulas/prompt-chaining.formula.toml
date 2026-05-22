@@ -72,14 +72,13 @@ Steps B and C cannot start until this bead is closed.
    self-contained result — something step B can read and act on without
    needing to re-derive your inputs.
 
-4. Record your result in the bead's notes so step B can consume it:
+4. Record your result in a comment so step B can consume it:
    ```bash
-   bd update <this-bead-id> --append-notes "Result: <your output here>"
+   bd comment <this-bead-id> "Result: <your output here>"
    ```
-   Use `--append-notes` to preserve earlier notes. If your result is
-   multi-line, pass it via a heredoc:
+   If your result is multi-line, pass it via a heredoc:
    ```bash
-   bd update <this-bead-id> --append-notes "$(cat <<'EOF'
+   bd comment <this-bead-id> "$(cat <<'EOF'
    Result:
    <your output here>
    EOF
@@ -91,8 +90,8 @@ Steps B and C cannot start until this bead is closed.
    bd close <this-bead-id> --reason="completed"
    ```
 
-**Exit criteria:** Bead is `closed` with reason `completed` and notes
-contain a result that step B can read."""
+**Exit criteria:** Bead is `closed` with reason `completed` and a comment
+contains a result that step B can read."""
 
 [[steps]]
 id = "step-b"
@@ -134,9 +133,9 @@ until this bead closes.
 4. Do the work described in your assignment above, building on step A's
    output.
 
-5. Record your result in this bead's notes so step C can consume it:
+5. Record your result in a comment so step C can consume it:
    ```bash
-   bd update <this-bead-id> --append-notes "Result: <your output here>"
+   bd comment <this-bead-id> "Result: <your output here>"
    ```
 
 6. Close this bead:
@@ -144,8 +143,8 @@ until this bead closes.
    bd close <this-bead-id> --reason="completed"
    ```
 
-**Exit criteria:** Bead is `closed` with reason `completed` and notes
-contain a result that step C can read."""
+**Exit criteria:** Bead is `closed` with reason `completed` and a comment
+contains a result that step C can read."""
 
 [[steps]]
 id = "step-c"
@@ -188,9 +187,9 @@ This bead becomes ready only after step B closes.
 4. Do the work described in your assignment above, building on step B's
    output (and optionally step A's if needed).
 
-5. Record your final result in this bead's notes:
+5. Record your final result in a comment:
    ```bash
-   bd update <this-bead-id> --append-notes "Result: <your output here>"
+   bd comment <this-bead-id> "Result: <your output here>"
    ```
 
 6. Close this bead — this terminates the chain:

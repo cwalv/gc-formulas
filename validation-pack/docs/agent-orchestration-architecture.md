@@ -11,13 +11,19 @@ Where foundations has landed on multi-agent orchestration architecture after exp
 - **What gets kept**: bead graph + workweaves + gc sling + named pools + supervisor + refinery + Agent Mail (as one optional coordination channel; not load-bearing).
 - **Next step**: small empirical experiment on the canonical fake change (append `hello` to `fixture/hello.txt`), with pre-registered expectations below.
 
+## gc CLI verbs used in this doc
+
+- `gc prime <persona>` — emit the persona's system prompt to stdout
+- `gc hook` — worker-side primitive for receiving routed work (called inside the worker's loop to pull the next dispatched bead)
+- `gc runtime drain-ack` — worker signals "no more work in my pool; safe to retire"
+
 ## Context
 
 Background reading, in approximate chronological order:
 
-- `projects/foundations/docs/orchestration-conversation.md` — the OOB conversation that mapped the agent-orchestration landscape (Flywheel, Intent, NTM, gascity, Swamp), introduced the form-matches-consumer framing, and surfaced the "two projects built workflow runtimes is weaker than two confirmations" reading.
-- `projects/foundations/docs/gascity-focus-areas.md` — the four focus areas (worker-contract crystallization, schema enforcement, reverse derivation, protocol evals) and their implied direction.
-- `projects/foundations/docs/ntm-multi-agent-tutorial.md` — manual NTM walkthrough with observations and 4 candidate upstream bug reports.
+- `./orchestration-conversation.md` — the OOB conversation that mapped the agent-orchestration landscape (Flywheel, Intent, NTM, gascity, Swamp), introduced the form-matches-consumer framing, and surfaced the "two projects built workflow runtimes is weaker than two confirmations" reading.
+- `./gascity-focus-areas.md` — the four focus areas (worker-contract crystallization, schema enforcement, reverse derivation, protocol evals) and their implied direction.
+- `./ntm-multi-agent-tutorial.md` — manual NTM walkthrough with observations and 4 candidate upstream bug reports.
 - This session: the deep-dive into NTM internals (pipeline, worktree, Agent Mail, personas), the persona decomposition synthesis, and the architectural-vs-implementation cost analysis.
 
 Related foundations beads:
@@ -59,7 +65,7 @@ We ran mol-weave-work on the canonical fake-change scenario this session. Failur
 - **Substrate control-bead processing** taking ~75s per retry-eval — the dispatcher walks too much state per decision.
 - **Session-spawn cost per step** (~30-60s each Claude Code session startup) — the architecture spawns a fresh worker per step.
 - **Per-step gap of ~2m 25s** observed; body of the work was a few seconds; the substrate overhead between steps was the wall clock.
-- **Result**: 22 minutes for what should have been 2-3 minutes; even with auto-export off, didn't finish in 10 minutes on the rerun.
+- **Result**: 22 minutes for what should have been 2-3 minutes; on the specific run described here, mol-weave-work didn't complete in 10 minutes even with auto-export off — single data point, not a controlled measurement.
 
 These aren't tuning bugs — they're structural to the "encode workflow as bead graph the runtime walks" model. Many beads → many writes → many session spawns. Cost compounds with workflow size.
 
