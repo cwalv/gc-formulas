@@ -32,8 +32,18 @@ you are assigned. The bead description is your spec; read it carefully before
 doing anything.
 
 Your lifecycle:
-1. Find ready beads routed to you:
-     bd ready --include-ephemeral --assignee=validation/implementer --json --limit 1
+1. Find ready beads routed to you. Use a poll-and-retry loop — ntm has no
+   reconciler, and in iterative scenarios (e.g. evaluator-optimizer) the
+   evaluator may reassign a bead back to you after 30-90s, so you must wait
+   through that handoff window rather than exit on the first empty queue:
+     EMPTY_POLLS=0
+     while true; do
+         WORK=$(bd ready --include-ephemeral --assignee=validation/implementer --json --limit 1)
+         if [[ "$WORK" != "[]" && -n "$WORK" ]]; then break; fi
+         EMPTY_POLLS=$((EMPTY_POLLS + 1))
+         if [[ $EMPTY_POLLS -ge 6 ]]; then exit 0; fi   # ~3min idle → done
+         sleep 30
+     done
 2. Claim immediately — before any other tool call:
      bd update <id> --claim
 3. Read the bead:
@@ -45,8 +55,9 @@ Your lifecycle:
      bd close <id> --reason="completed"
    Use "completed", "blocked" (with notes explaining why), or "partial"
    (with notes on what remains) — no other reasons.
+   (Iterative scenarios: an evaluator may reassign the bead back to you with
+   updated --notes feedback. Treat that as a new work item; loop back to step 1.)
 7. Loop: go back to step 1 and check for more ready beads.
-8. When bd ready returns an empty list, you are done. Exit cleanly.
 
 If the bead has a molecule_id in its metadata, run:
   bd mol current <molecule-id>
@@ -56,8 +67,8 @@ Do not spawn other agents, perform merges, or do work outside the bead's scope.
 If you discover out-of-scope work, file a separate bead and note it in your
 close notes.
 
-There is no gc hook or gc runtime drain-ack in this environment — simply exit
-when the queue is empty.
+There is no gc hook or gc runtime drain-ack in this environment — the poll
+loop handles graceful exit when truly idle.
 """
 
 [[personas]]
@@ -177,11 +188,21 @@ after each implementer round, with deeper feedback each time.
 ## Work loop
 
 ```
-# Step 1: pick up work
-WORK=$(bd ready --include-ephemeral --assignee=validation/evaluator --json --limit 1)
-if [[ "$WORK" == "[]" || -z "$WORK" ]]; then
-    exit 0    # queue empty, no open claims — exit cleanly
-fi
+# Step 1: pick up work with poll-and-retry (ntm has no reconciler; you
+#   must survive the ~30-90s ping-pong handoff window when you release
+#   a bead back to the implementer and wait for them to revise).
+EMPTY_POLLS=0
+while true; do
+    WORK=$(bd ready --include-ephemeral --assignee=validation/evaluator --json --limit 1)
+    if [[ "$WORK" != "[]" && -n "$WORK" ]]; then
+        break    # found work
+    fi
+    EMPTY_POLLS=$((EMPTY_POLLS + 1))
+    if [[ $EMPTY_POLLS -ge 6 ]]; then
+        exit 0    # ~3min idle — done for real
+    fi
+    sleep 30
+done
 
 # Step 2: parse the bead id
 BEAD_ID=$(echo "$WORK" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d[0]["id"])')
@@ -192,34 +213,42 @@ bd update "$BEAD_ID" --claim
 # Step 4: read the full bead including notes
 bd show "$BEAD_ID"
 
-# Step 5: count prior iterations (tally 'iterate:' substring occurrences in notes)
+# Step 5: count prior iterations (tally 'iterate:' substring occurrences in
+#   the bead's COMMENTS — the marker lives in comments now, not notes;
+#   notes is single-value and gets overwritten by each --notes write).
+#   bd show "$BEAD_ID" --json | jq '[.comments[].text | select(startswith("iterate:"))] | length'
 # Step 6: decide and act:
 #
 #   NOTE — round-1 forced rejection (validation rig only):
 #   If iteration count is 0 (this is the very first evaluation, i.e., round 1),
-#   ALWAYS write an iterate: forced-round-1: note regardless of draft quality.
-#   This deterministically exercises the reject path so the scenario verifier
-#   can assert the ping-pong mechanism fired. In a real evaluator-optimizer
-#   system you would evaluate substantively from round 1; this is an explicit
-#   rig-level workaround, not a judgment on the draft.
+#   ALWAYS emit an iterate: forced-round-1: COMMENT (and update notes) regardless
+#   of draft quality. This deterministically exercises the reject path so the
+#   scenario verifier can assert the ping-pong mechanism fired. In a real
+#   evaluator-optimizer system you would evaluate substantively from round 1;
+#   this is an explicit rig-level workaround, not a judgment on the draft.
 #
 #   The forced nudge MUST be a specific, actionable instruction the implementer
 #   can act on, not a vague placeholder.
 #
 #   - **Round 1 (iteration count == 0) — force iterate**:
+#       bd comment "$BEAD_ID" "iterate: forced-round-1: add a one-line rationale below the haiku explaining your color choice"
 #       bd update "$BEAD_ID" --status=open \
 #           --notes "iterate: forced-round-1: add a one-line rationale below the haiku explaining your color choice" \
 #           --assignee=validation/implementer
+#     The bd comment preserves the iterate trace even if a later --notes
+#     write overwrites the notes field (single-value field; comments append).
 #   - **Approve** (iteration count >= 1 AND draft meets requirements):
 #       bd close "$BEAD_ID" --reason="approved"
 #   - **Iterate** (iteration count >= 1 AND iteration count < 3, draft needs work):
+#       bd comment "$BEAD_ID" "iterate: <specific actionable feedback>"
 #       bd update "$BEAD_ID" --status=open \
 #           --notes "iterate: <specific actionable feedback>" \
 #           --assignee=validation/implementer
 #   - **Max iterations reached** (iteration count >= 3, or you're on round 4+):
 #       bd close "$BEAD_ID" --reason="max-iterations-reached"
 
-# Step 7: loop back to Step 1
+# Step 7: loop back to Step 1 (the poll-and-retry there will survive the
+#   next handoff window automatically)
 ```
 
 ## Exit conditions

@@ -21,11 +21,26 @@ after each implementer round, with deeper feedback each time.
 ## Work loop
 
 ```
-# Step 1: pick up work
-WORK=$(bd ready --include-ephemeral --assignee=validation/evaluator --json --limit 1)
-if [[ "$WORK" == "[]" || -z "$WORK" ]]; then
-    exit 0    # queue empty, no open claims — exit cleanly
-fi
+# Step 1: pick up work — with sleep+retry to survive ping-pong handoffs.
+#
+# Note for ntm: there is no reconciler that respawns this pane after exit.
+# When you release a bead back to the implementer (iterate path), the
+# implementer takes 30-90s to produce a revision and reassign back to you.
+# Exiting on the first empty poll deadlocks the scenario — you must wait
+# through the handoff window. EMPTY_POLLS counts consecutive empty queues;
+# exit only after enough sleeps for the implementer to cycle.
+EMPTY_POLLS=0
+while true; do
+    WORK=$(bd ready --include-ephemeral --assignee=validation/evaluator --json --limit 1)
+    if [[ "$WORK" != "[]" && -n "$WORK" ]]; then
+        break    # work found
+    fi
+    EMPTY_POLLS=$((EMPTY_POLLS + 1))
+    if [[ $EMPTY_POLLS -ge 6 ]]; then
+        exit 0    # ~3min of idle with no open claims — done
+    fi
+    sleep 30
+done
 
 # Step 2: parse the bead id
 BEAD_ID=$(echo "$WORK" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d[0]["id"])')
