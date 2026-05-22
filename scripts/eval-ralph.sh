@@ -12,6 +12,11 @@
 # report tokens_in as input_tokens (prompt tokens sent to the model this turn,
 # excluding cache hits). If JSON parsing fails, tokens_in/tokens_out are 0.
 #
+# Worker model: claude --output-format json emits a top-level "modelUsage"
+# object whose keys are model identifiers (e.g. "claude-opus-4-7[1m]"). We
+# extract the first key from iter-1 output as worker_model. If absent or
+# unparseable, the field is omitted from results rather than faked.
+#
 # Scorer: expects scripts/eval-scorer.py to exist. If absent, exits with a
 # clear error after still writing a results JSON with scorer fields zeroed.
 #
@@ -128,6 +133,7 @@ VISIBLE_TOTAL=0
 EXISTING_PASS=0
 EXISTING_TOTAL=0
 ITERATIONS=0
+WORKER_MODEL=""
 
 LOOP_START_SECS="$(date +%s%N)"
 
@@ -164,7 +170,7 @@ ${SPEC_CONTENT}"
   CLAUDE_EXIT_CODE="$ITER_EXIT_CODE"
   echo "    Claude iter ${iter} exited with code: ${ITER_EXIT_CODE}" >&2
 
-  # Accumulate tokens from this iteration.
+  # Accumulate tokens from this iteration; capture worker_model from iter 1.
   if command -v python3 &>/dev/null && [[ -f "${CLAUDE_OUTPUT_FILE}" ]]; then
     read -r ITER_TOKENS_IN ITER_TOKENS_OUT < <(
       python3 - "${CLAUDE_OUTPUT_FILE}" <<'PYEOF'
@@ -183,6 +189,26 @@ PYEOF
     ) || true
     TOKENS_IN=$(( TOKENS_IN + ITER_TOKENS_IN ))
     TOKENS_OUT=$(( TOKENS_OUT + ITER_TOKENS_OUT ))
+
+    # Extract worker_model from the first iteration's modelUsage keys.
+    # modelUsage is a dict keyed by model ID; we take the first key.
+    if [[ $iter -eq 1 && -z "$WORKER_MODEL" ]]; then
+      WORKER_MODEL="$(python3 - "${CLAUDE_OUTPUT_FILE}" <<'PYEOF'
+import sys, json
+try:
+    with open(sys.argv[1]) as f:
+        raw = f.read().strip()
+    data = json.loads(raw)
+    model_usage = data.get("modelUsage", {})
+    if model_usage:
+        print(next(iter(model_usage)))
+    else:
+        print("")
+except Exception:
+    print("")
+PYEOF
+      )" || true
+    fi
   fi
 
   # Score this iteration.
@@ -268,6 +294,10 @@ result = {
     "iterations":       int("${ITERATIONS}"),
     "max_iterations":   int("${MAX_ITERS}"),
 }
+
+worker_model = "${WORKER_MODEL}".strip()
+if worker_model:
+    result["worker_model"] = worker_model
 
 with open("${RESULTS_FILE}", "w") as f:
     json.dump(result, f, indent=2)

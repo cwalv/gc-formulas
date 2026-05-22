@@ -15,6 +15,12 @@
 #   <output-dir>/results-<run-id>.json  — per-run result JSON (schema from epic fo-ghqjh)
 #
 # Requirements: bash, claude (Claude Code CLI), python3, cp, date
+#
+# Worker model: claude --output-format json emits a top-level "modelUsage"
+# object whose keys are model identifiers (e.g. "claude-opus-4-7[1m]"). All
+# parallel workers use the same default model, so we extract the first key from
+# the first agent's output file. If absent or unparseable, worker_model is
+# omitted from results rather than faked.
 
 set -euo pipefail
 
@@ -185,6 +191,7 @@ TOTAL_TOKENS_IN=0
 TOTAL_TOKENS_OUT=0
 TOKENS_PARTIAL=0   # flag: 1 if any agent didn't surface tokens
 OVERALL_EXIT=0
+WORKER_MODEL=""
 
 for PID in "${PIDS[@]}"; do
     ENTITY_BASENAME="${PID_TO_FILE[$PID]}"
@@ -198,7 +205,7 @@ for PID in "${PIDS[@]}"; do
         echo "[fanout] Agent for ${ENTITY_BASENAME} exited with code ${AGENT_EXIT}" >&2
     fi
 
-    # Try to parse token counts from JSON output
+    # Try to parse token counts and worker_model from JSON output
     if [[ -f "${AGENT_OUT}" ]] && command -v python3 &>/dev/null; then
         AGENT_IN="$(python3 -c "
 import sys, json
@@ -229,6 +236,23 @@ except Exception:
             TOTAL_TOKENS_OUT=$((TOTAL_TOKENS_OUT + AGENT_OUT_TOK))
         else
             TOKENS_PARTIAL=1
+        fi
+
+        # Capture worker_model from the first agent output that has modelUsage.
+        # All workers use the same default model, so one is sufficient.
+        if [[ -z "$WORKER_MODEL" ]]; then
+            WORKER_MODEL="$(python3 -c "
+import sys, json
+try:
+    data = json.load(open('${AGENT_OUT}'))
+    model_usage = data.get('modelUsage', {})
+    if model_usage:
+        print(next(iter(model_usage)))
+    else:
+        print('')
+except Exception:
+    print('')
+" 2>/dev/null)" || true
         fi
     else
         TOKENS_PARTIAL=1
@@ -298,6 +322,10 @@ result = {
         "worktree": "${WORKTREE}"
     }
 }
+
+worker_model = "${WORKER_MODEL}".strip()
+if worker_model:
+    result["worker_model"] = worker_model
 
 with open("${RESULTS_FILE}", "w") as fh:
     json.dump(result, fh, indent=2)
