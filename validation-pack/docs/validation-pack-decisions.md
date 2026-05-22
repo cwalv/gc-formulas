@@ -292,6 +292,27 @@ The manual run took 4 seconds and surfaced both bugs that 30+ minutes of full-sc
 
 This is a separate work item; capturing here so it's not lost.
 
+## Late-session finding: bd multi-process write-loss is real under gc-supervisor load
+
+An earlier "Correction" section concluded `BEADS_EXPORT_AUTO=false` was sufficient because two sequential bd invocations see each other's writes via the embedded dolt instance. The test was clean (only the two bd processes; nothing else writing). That conclusion was wrong as a general claim.
+
+Under the gc supervisor active in a scenario container, there is a steady stream of background bd activity (mol-dog beads, cache-reconcile, autoclose hooks, gc convoy autoclose, etc.). With `BEADS_EXPORT_AUTO=false`, the JSONL on disk is stale relative to dolt; every supervisor bd invocation that does `bd update` triggers an auto-import-from-JSONL into a fresh dolt instance — silently overwriting any prior in-dolt state that wasn't yet exported. Observed flow:
+
+1. Scenario driver's `shim_await` reads the bead and sees `status=closed` (agent closed it; dolt has the close).
+2. ~ milliseconds later, a supervisor bd process imports the stale JSONL into its own dolt → bead reverts to `status=open` in dolt.
+3. Verifier reads → sees `status=open` → FAIL.
+
+Symptom in artifacts: `bd-export.jsonl` shows the bead `status=open, comment_count=3` (the comments wrote successfully via `bd comment` rows — those don't conflict — but the close on the bead itself reverted).
+
+There is no in-bd-v1.0.3 setting that makes multi-process safe:
+
+- `EXPORT_AUTO=false` (current): stale JSONL re-imports revert recent writes.
+- `EXPORT_AUTO=true`: concurrent writes race on the JSONL file (last-writer-wins).
+
+The proper fix is a single shared dolt sql-server that all bd processes connect to, or bd main's commit `1cf833734` (PR #3691) which restores the emptiness guard so auto-import is skipped when dolt already has data. We're pinned to v1.0.3 and not running main.
+
+**Implication for the rig:** the gc-shim scenarios pass *as workflow shapes* — the bead DAG materialises, agents do real work, comments record the trace, etc. — but the verifier's "is the bead still closed at read time" check is fragile against the supervisor's background activity. Same `bd v1.0.3` bug catalogue we filed up-thread (#3948, #3964, #3822, #4082). The ntm shim path that doesn't run the gc supervisor avoids this specific race (but has its own multi-agent races among the worker bd processes).
+
 ## Final coverage matrix (end of session)
 
 | Scenario | gc shim | ntm shim | ntm root cause when failing |

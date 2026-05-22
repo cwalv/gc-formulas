@@ -153,6 +153,13 @@ RUN python3 -c "import json; sc=['01-prompt-chaining','02-routing','03-sectionin
 # proceed.
 RUN gc doctor --fix --city /home/agent/validation-pack || true
 
+# `gc doctor --fix` resets dolt.auto-start to false in .beads/config.yaml
+# (observed empirically — gc's bd-pack assumes the supervisor brings up
+# dolt). Re-enable auto-start so the verifier (which runs outside the
+# supervisor's bd context after the scenario finishes) can talk to dolt
+# via bd list / bd show without depending on the supervisor still being up.
+# auto-start kept at default (false); supervisor brings up dolt for its session pool
+
 # Strip parts of bundled packs that bring in personas (mayor, dog, witness,
 # polecat, refinery, deacon, boot) the city.toml doesn't declare. Those packs
 # include `[[named_session]] mode = "always"` entries for those personas; the
