@@ -110,56 +110,68 @@ cp -r "${CASE_PATH}/starting-state/." "${WORKTREE}/"
 SPEC_CONTENT="$(cat "${CASE_PATH}/spec.md")"
 
 # ---------------------------------------------------------------------------
-# Invoke Claude Code CLI
+# Ralph loop: attempt → check goal → retry if needed (up to MAX_ITERS)
+#
+# "Real ralph" is a goal-check loop, not a single turn. For tasks claude
+# can solve in one turn (like cancel-method), this terminates after iter=1
+# with the same wall-clock as one-shot. For harder tasks, ralph keeps trying
+# with feedback from previous iterations until visible tests pass or the
+# iteration cap is hit. Wall-clock + tokens are cumulative across iterations.
 # ---------------------------------------------------------------------------
-CLAUDE_OUTPUT_FILE="${OUTPUT_DIR}/${RUN_ID}/claude-output.json"
+MAX_ITERS="${RALPH_MAX_ITERS:-5}"
+SCORER="${REPO_ROOT}/scripts/eval-scorer.py"
 CLAUDE_EXIT_CODE=0
-
-echo "  Invoking Claude Code agent..." >&2
-
-START_SECS="$(date +%s%N)"  # nanoseconds for sub-second precision
-
-# Run claude with:
-#   -p          one-shot / non-interactive (print and exit)
-#   --dangerously-skip-permissions  headless; worktree is throwaway
-#   --output-format json            structured output including token usage
-#   working directory set via cd into the worktree
-(
-  cd "${WORKTREE}"
-  claude \
-    -p "${SPEC_CONTENT}" \
-    --dangerously-skip-permissions \
-    --output-format json \
-    2>&1
-) > "${CLAUDE_OUTPUT_FILE}" || CLAUDE_EXIT_CODE=$?
-
-END_SECS="$(date +%s%N)"
-
-echo "  Claude exited with code: ${CLAUDE_EXIT_CODE}" >&2
-
-# ---------------------------------------------------------------------------
-# Compute wall-clock (seconds, one decimal)
-# ---------------------------------------------------------------------------
-ELAPSED_NS=$(( END_SECS - START_SECS ))
-WALL_CLOCK_SECS="$(awk "BEGIN { printf \"%.1f\", ${ELAPSED_NS} / 1000000000 }")"
-
-# ---------------------------------------------------------------------------
-# Parse token usage from JSON output
-# ---------------------------------------------------------------------------
 TOKENS_IN=0
 TOKENS_OUT=0
+VISIBLE_PASS=0
+VISIBLE_TOTAL=0
+EXISTING_PASS=0
+EXISTING_TOTAL=0
+ITERATIONS=0
 
-if command -v python3 &>/dev/null && [[ -f "${CLAUDE_OUTPUT_FILE}" ]]; then
-  # The JSON output is a single object on stdout. Parse input_tokens and
-  # output_tokens from the top-level "usage" field.
-  read -r TOKENS_IN TOKENS_OUT < <(
-    python3 - "${CLAUDE_OUTPUT_FILE}" <<'PYEOF'
+LOOP_START_SECS="$(date +%s%N)"
+
+for (( iter=1; iter <= MAX_ITERS; iter++ )); do
+  ITERATIONS="$iter"
+  CLAUDE_OUTPUT_FILE="${OUTPUT_DIR}/${RUN_ID}/claude-output-iter${iter}.json"
+
+  # Build iteration prompt: spec on iter 1; spec + failure feedback on retries.
+  if [[ $iter -eq 1 ]]; then
+    ITER_PROMPT="${SPEC_CONTENT}"
+  else
+    ITER_PROMPT="Your previous attempt did not pass all visible tests. The scorer reported visible_pass=${VISIBLE_PASS}/${VISIBLE_TOTAL}. Examine the test failures (run pytest visible-tests/ from the worktree if helpful) and fix the remaining issues. Stay strictly in scope per the original spec below.
+
+---
+
+${SPEC_CONTENT}"
+  fi
+
+  echo "  Invoking Claude Code agent (iter ${iter}/${MAX_ITERS})..." >&2
+
+  ITER_EXIT_CODE=0
+  (
+    cd "${WORKTREE}"
+    claude \
+      -p "${ITER_PROMPT}" \
+      --dangerously-skip-permissions \
+      --output-format json \
+      2>&1
+  ) > "${CLAUDE_OUTPUT_FILE}" || ITER_EXIT_CODE=$?
+
+  # Track the LAST iteration's claude exit code as the run's exit code.
+  # If any iteration succeeds (scorer passes) we use that; if the loop
+  # exhausts, the final iteration's code is most representative.
+  CLAUDE_EXIT_CODE="$ITER_EXIT_CODE"
+  echo "    Claude iter ${iter} exited with code: ${ITER_EXIT_CODE}" >&2
+
+  # Accumulate tokens from this iteration.
+  if command -v python3 &>/dev/null && [[ -f "${CLAUDE_OUTPUT_FILE}" ]]; then
+    read -r ITER_TOKENS_IN ITER_TOKENS_OUT < <(
+      python3 - "${CLAUDE_OUTPUT_FILE}" <<'PYEOF'
 import sys, json
-
 try:
     with open(sys.argv[1]) as f:
         raw = f.read().strip()
-    # claude --output-format json may emit a single JSON object
     data = json.loads(raw)
     usage = data.get("usage", {})
     tokens_in = usage.get("input_tokens", 0) or 0
@@ -168,39 +180,31 @@ try:
 except Exception:
     print(0, 0)
 PYEOF
-  ) || true
-fi
+    ) || true
+    TOKENS_IN=$(( TOKENS_IN + ITER_TOKENS_IN ))
+    TOKENS_OUT=$(( TOKENS_OUT + ITER_TOKENS_OUT ))
+  fi
 
-echo "  Tokens in: ${TOKENS_IN}, out: ${TOKENS_OUT}" >&2
-
-# ---------------------------------------------------------------------------
-# Run scorer
-# ---------------------------------------------------------------------------
-SCORER="${REPO_ROOT}/scripts/eval-scorer.py"
-VISIBLE_PASS=0
-VISIBLE_TOTAL=0
-EXISTING_PASS=0
-EXISTING_TOTAL=0
-SCORER_OK=true
-
-if [[ ! -f "${SCORER}" ]]; then
-  echo "WARNING: Scorer not yet present at ${SCORER}. Score fields will be 0." >&2
-  SCORER_OK=false
-fi
-
-if [[ "$SCORER_OK" == "true" ]]; then
-  SCORER_OUTPUT="$(python3 "${SCORER}" \
-    --case-path "${CASE_PATH}" \
-    --worktree "${WORKTREE}" \
-    2>&1)" || {
-    echo "WARNING: Scorer exited non-zero. Score fields will be 0." >&2
+  # Score this iteration.
+  SCORER_OK=true
+  if [[ ! -f "${SCORER}" ]]; then
+    echo "    WARNING: Scorer not yet present at ${SCORER}. Score fields will be 0." >&2
     SCORER_OK=false
-  }
-fi
+  fi
 
-if [[ "$SCORER_OK" == "true" ]] && command -v python3 &>/dev/null; then
-  read -r VISIBLE_PASS VISIBLE_TOTAL EXISTING_PASS EXISTING_TOTAL < <(
-    python3 - "${SCORER_OUTPUT}" <<'PYEOF'
+  if [[ "$SCORER_OK" == "true" ]]; then
+    SCORER_OUTPUT="$(python3 "${SCORER}" \
+      --case-path "${CASE_PATH}" \
+      --worktree "${WORKTREE}" \
+      2>&1)" || {
+      echo "    WARNING: Scorer exited non-zero. Score fields will be 0." >&2
+      SCORER_OK=false
+    }
+  fi
+
+  if [[ "$SCORER_OK" == "true" ]] && command -v python3 &>/dev/null; then
+    read -r VISIBLE_PASS VISIBLE_TOTAL EXISTING_PASS EXISTING_TOTAL < <(
+      python3 - "${SCORER_OUTPUT}" <<'PYEOF'
 import sys, json
 try:
     data = json.loads(sys.argv[1])
@@ -213,10 +217,32 @@ try:
 except Exception:
     print(0, 0, 0, 0)
 PYEOF
-  ) || true
-fi
+    ) || true
+  fi
 
-echo "  Scorer: visible ${VISIBLE_PASS}/${VISIBLE_TOTAL}, existing ${EXISTING_PASS}/${EXISTING_TOTAL}" >&2
+  echo "    Scorer iter ${iter}: visible ${VISIBLE_PASS}/${VISIBLE_TOTAL}, existing ${EXISTING_PASS}/${EXISTING_TOTAL}" >&2
+
+  # Goal-check: if all visible tests pass AND existing tests still pass, done.
+  if [[ "${VISIBLE_PASS}" -eq "${VISIBLE_TOTAL}" ]] \
+      && [[ "${VISIBLE_TOTAL}" -gt 0 ]] \
+      && [[ "${EXISTING_PASS}" -eq "${EXISTING_TOTAL}" ]]; then
+    echo "  Goal reached at iteration ${iter}." >&2
+    break
+  fi
+
+  if [[ $iter -lt $MAX_ITERS ]]; then
+    echo "  Not yet at goal (visible ${VISIBLE_PASS}/${VISIBLE_TOTAL}); iterating..." >&2
+  else
+    echo "  Reached MAX_ITERS=${MAX_ITERS} without passing all visible tests." >&2
+  fi
+done
+
+LOOP_END_SECS="$(date +%s%N)"
+ELAPSED_NS=$(( LOOP_END_SECS - LOOP_START_SECS ))
+WALL_CLOCK_SECS="$(awk "BEGIN { printf \"%.1f\", ${ELAPSED_NS} / 1000000000 }")"
+
+echo "  Total: ${ITERATIONS} iteration(s), tokens in: ${TOKENS_IN}, out: ${TOKENS_OUT}, wall: ${WALL_CLOCK_SECS}s" >&2
+echo "  Final scorer: visible ${VISIBLE_PASS}/${VISIBLE_TOTAL}, existing ${EXISTING_PASS}/${EXISTING_TOTAL}" >&2
 
 # ---------------------------------------------------------------------------
 # Write results JSON
@@ -239,6 +265,8 @@ result = {
     "existing_pass":    int("${EXISTING_PASS}"),
     "existing_total":   int("${EXISTING_TOTAL}"),
     "exit_code":        int("${CLAUDE_EXIT_CODE}"),
+    "iterations":       int("${ITERATIONS}"),
+    "max_iterations":   int("${MAX_ITERS}"),
 }
 
 with open("${RESULTS_FILE}", "w") as f:
