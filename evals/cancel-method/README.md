@@ -32,7 +32,7 @@ cancel-method/
 ## Scoring
 
 - **Visible:** `pytest visible-tests/ starting-state/tests/` — both pass = correctness floor met.
-- **Hidden:** *not yet authored.* This case is for runner validation only. Hidden tests can be added later if we want quality-axis signal from this case.
+- **Hidden:** `hidden-tests/test_cancel_quality.py` — 15 tests covering idempotence, terminal-state guards, state-machine integrity, and event-payload completeness. The scorer (`scripts/eval-scorer.py`) does not yet surface hidden-test results; that wiring is a separate follow-up.
 
 ## How the runner uses this
 

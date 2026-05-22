@@ -36,7 +36,7 @@ This case is too easy to differentiate orchestration patterns at the worker mode
 ## Follow-ups surfaced by this run
 
 1. **Ralph should be a goal-check loop, not one-shot.** Currently each ralph "run" is a single claude turn. For harder cases where one turn can't solve the task, real ralph would iterate (claude → check → retry on fail). The cancel-method case happens to fit in one turn, so this didn't matter here — but for the next eval case it will.
-2. **Hidden tests not authored for this case.** Quality-axis signal requires them. If we want this case to also stress the quality dimension, add hidden tests for edge cases (idempotence, can't-cancel-already-cancelled, event timestamp, etc.).
+2. **Hidden tests now authored.** `hidden-tests/test_cancel_quality.py` adds 15 quality-axis tests (idempotence, terminal-state guards, state-machine integrity, event-payload completeness). Scorer wiring to surface hidden-test pass rates is still a follow-up.
 3. **Token capture is reliable.** `claude --output-format json` exposes input + output tokens. No partial-coverage issues with the actual run.
 4. **Worker model identification.** The runner doesn't capture which model the host's `claude` invocation defaulted to. Worth adding for reproducibility across model versions — needed for the regression-tracking dimension in `docs/plan-evals.md` M5.
 
