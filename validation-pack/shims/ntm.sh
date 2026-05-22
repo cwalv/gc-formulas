@@ -73,9 +73,18 @@
 # Internal helpers
 # ---------------------------------------------------------------------------
 
-# NTM session name for this scenario run.
+# NTM session name. Scenarios that call shim_spawn multiple times with
+# different personas (e.g. 05 orchestrator-workers spawns foreman, then
+# implementer, then treehugger) need each spawn in its own session — otherwise
+# the second call kills the first session (idempotent re-spawn behaviour) and
+# loses those agents.
+#
+# Session naming: vp-${SCENARIO_ID}-${persona}. Used both to keep persona
+# spawns isolated and to make the projects_base directory and Agent Mail
+# project key distinct per pool.
 _ntm_session_name() {
-    echo "vp-${SCENARIO_ID:-scenario}"
+    local persona="${1:?_ntm_session_name: persona required}"
+    echo "vp-${SCENARIO_ID:-scenario}-${persona}"
 }
 
 # NTM_CONFIG: point ntm at a writable config in the container. ntm needs a
@@ -175,7 +184,7 @@ shim_spawn() {
     local persona="${1:?shim_spawn: persona required}"
     local count="${2:-1}"
     local session
-    session="$(_ntm_session_name)"
+    session="$(_ntm_session_name "${persona}")"
 
     # Sanity-check prerequisites.
     if ! command -v tmux &>/dev/null; then
@@ -341,42 +350,34 @@ until the queue is empty, then exit cleanly."
 shim_await() {
     local bead_id="${1:?shim_await: bead-id required}"
     local timeout_secs="${2:-1500}"
-    local poll_interval=10
-    local stall_check_interval=60    # seconds between agent-health checks
-    local last_stall_check=0
+    local poll_interval=5
     local start_ts
     start_ts="$(date +%s)"
-    local session
-    session="$(_ntm_session_name)"
 
     echo "[shim_await] waiting for bead ${bead_id} to close (timeout ${timeout_secs}s)..."
 
     while true; do
-        # Primary check: is the bead closed?
+        # Per-bead status check via bd show — robust for ephemeral wisps that
+        # bd list --status=closed may filter out (same fix as gc shim).
         local status
-        status="$(bd list --status=closed --json 2>/dev/null \
-            | jq -r "[.[] | select(.id==\"${bead_id}\")] | length" \
-            2>/dev/null || echo 0)"
+        status="$(bd show "${bead_id}" --json 2>/dev/null \
+            | python3 -c 'import json,sys
+try:
+    d = json.load(sys.stdin)[0]
+    print(d.get("status",""))
+except Exception:
+    print("")' 2>/dev/null || echo "")"
 
-        if [[ "${status}" -ge 1 ]]; then
-            echo "[shim_await] bead ${bead_id} closed (poll)"
+        if [[ "${status}" == "closed" ]]; then
+            local elapsed=$(( $(date +%s) - start_ts ))
+            echo "[shim_await] bead ${bead_id} closed (after ${elapsed}s)"
             return 0
         fi
 
-        local now elapsed
-        now="$(date +%s)"
-        elapsed=$(( now - start_ts ))
-
+        local elapsed=$(( $(date +%s) - start_ts ))
         if [[ "${elapsed}" -ge "${timeout_secs}" ]]; then
-            echo "[shim_await] TIMEOUT after ${elapsed}s: bead ${bead_id} still not closed" >&2
+            echo "[shim_await] TIMEOUT after ${elapsed}s: bead ${bead_id} status=${status:-<unknown>}" >&2
             return 1
-        fi
-
-        # Periodic agent health check using ntm activity --json.
-        # Detects stalled/dead sessions early so diagnostics appear in logs.
-        if (( now - last_stall_check >= stall_check_interval )); then
-            last_stall_check="${now}"
-            _ntm_check_agent_health "${session}" "${bead_id}" || true
         fi
 
         sleep "${poll_interval}"
