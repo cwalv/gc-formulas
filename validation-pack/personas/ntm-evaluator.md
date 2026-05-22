@@ -22,7 +22,12 @@ after each implementer round, with deeper feedback each time.
 
 ```
 # Step 1: pick up work
-WORK=$(bd ready --include-ephemeral --metadata-field gc.routed_to=validation/evaluator --unassigned --json --limit 1)
+# Workaround for bd#4082: `bd ready --include-ephemeral --metadata-field` ignores
+# the metadata predicate. Filter client-side via jq; also require issue_type=task
+# so molecule roots are skipped.
+WORK=$(bd ready --include-ephemeral --json --limit 50 \
+    | jq -c --arg pool "validation/evaluator" \
+        '[.[] | select(.metadata."gc.routed_to" == $pool and .assignee == null and .issue_type == "task")] | .[0:1]')
 if [[ "$WORK" == "[]" || -z "$WORK" ]]; then
     exit 0    # queue empty, no open claims — exit cleanly
 fi

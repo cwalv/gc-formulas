@@ -33,7 +33,13 @@ Run this exact sequence:
 
 ```
 # Step 1: pick up work
-WORK=$(bd ready --include-ephemeral --metadata-field gc.routed_to=validation/foreman --unassigned --json --limit 1)
+# Workaround for bd#4082: `bd ready --include-ephemeral --metadata-field` ignores
+# the metadata predicate, returning ALL ephemeral wisps including the molecule
+# root. Apply the filter client-side via jq, and also require issue_type=task
+# so the molecule root (which has no description-driven work for us) is skipped.
+WORK=$(bd ready --include-ephemeral --json --limit 50 \
+    | jq -c --arg pool "validation/foreman" \
+        '[.[] | select(.metadata."gc.routed_to" == $pool and .assignee == null and .issue_type == "task")] | .[0:1]')
 if [[ "$WORK" == "[]" || -z "$WORK" ]]; then
     exit 0    # queue empty, no open claims — exit cleanly
 fi

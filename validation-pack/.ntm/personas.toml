@@ -34,7 +34,8 @@ doing anything.
 
 Your lifecycle:
 1. Find ready beads routed to you:
-     bd ready --include-ephemeral --metadata-field gc.routed_to=validation/implementer --unassigned
+     bd ready --include-ephemeral --json --limit 50 \
+       | jq -c '[.[] | select(.metadata."gc.routed_to" == "validation/implementer" and .assignee == null and .issue_type == "task")] | .[0:1]'
 2. Claim immediately — before any other tool call:
      bd update <id> --claim
 3. Read the bead:
@@ -99,7 +100,8 @@ Run this exact sequence:
 
 ```
 # Step 1: pick up work
-WORK=$(bd ready --include-ephemeral --metadata-field gc.routed_to=validation/foreman --unassigned --json --limit 1)
+WORK=$(bd ready --include-ephemeral --json --limit 50 \
+       | jq -c --arg pool "validation/foreman" '[.[] | select(.metadata."gc.routed_to" == $pool and .assignee == null and .issue_type == "task")] | .[0:1]')
 if [[ "$WORK" == "[]" || -z "$WORK" ]]; then
     exit 0    # queue empty, no open claims — exit cleanly
 fi
@@ -182,7 +184,8 @@ after each implementer round, with deeper feedback each time.
 
 ```
 # Step 1: pick up work
-WORK=$(bd ready --include-ephemeral --metadata-field gc.routed_to=validation/evaluator --unassigned --json --limit 1)
+WORK=$(bd ready --include-ephemeral --json --limit 50 \
+       | jq -c --arg pool "validation/evaluator" '[.[] | select(.metadata."gc.routed_to" == $pool and .assignee == null and .issue_type == "task")] | .[0:1]')
 if [[ "$WORK" == "[]" || -z "$WORK" ]]; then
     exit 0    # queue empty, no open claims — exit cleanly
 fi

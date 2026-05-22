@@ -26,6 +26,11 @@ RUN userdel -r ubuntu && useradd -m -u 1000 -s /bin/bash agent
 # bind-mount at run time (see entrypoint.sh).
 RUN npm install -g @anthropic-ai/claude-code
 
+# util-linux for flock (used by scripts/bd-locked.sh to serialise multi-process
+# bd invocations under ntm). Already pulled in by apt-get most likely, but
+# spell out explicitly so it's not removed in a future image slim-down.
+RUN apt-get update && apt-get install -y --no-install-recommends util-linux && rm -rf /var/lib/apt/lists/*
+
 # bd CLI — gastownhall/beads v1.0.3 (prebuilt linux/amd64 release tarball)
 # SHA256: 1ef5dca818d7e81574df9e9f9fc2a16ab711da09b0fa7b822ae162d9a81c8912
 # Release page: https://github.com/gastownhall/beads/releases/tag/v1.0.3
@@ -42,6 +47,20 @@ RUN curl -fsSL \
     && tar -xzf /tmp/beads.tar.gz -C /usr/local/bin bd \
     && chmod +x /usr/local/bin/bd \
     && rm /tmp/beads.tar.gz
+
+# Shim a flock-serialized bd in front of the real bd. Under SHIM=ntm, every
+# Claude pane runs bd as its own subprocess; with N concurrent panes their
+# auto-import-on-each-invocation cycles race and lose writes. The wrapper
+# at scripts/bd-locked.sh acquires /tmp/bd.lock before exec'ing the real bd,
+# serialising all bd invocations container-wide. The real bd binary moves to
+# bd.real; the wrapper becomes the bd in PATH.
+#
+# This is a substrate-concurrency workaround; the proper fix is bd-side
+# (single-server dolt mode). Easy to drop the wrapper once bd handles
+# multi-writer correctly.
+RUN mv /usr/local/bin/bd /usr/local/bin/bd.real
+COPY validation-pack/scripts/bd-locked.sh /usr/local/bin/bd
+RUN chmod +x /usr/local/bin/bd
 
 # gc CLI — gastownhall/gascity v1.1.0 (prebuilt linux/amd64 release tarball)
 # SHA256: b6983ff515d3b7785c00ab1b53948fdae2cc6f6ee88bfc0b60a7c3bca72ab78b
