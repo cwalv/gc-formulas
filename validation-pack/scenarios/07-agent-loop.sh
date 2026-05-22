@@ -178,6 +178,25 @@ scenario07_spawn() {
     checkpoint spawn
 }
 
+scenario07_fake_worker() {
+    # Deterministic stand-in for a passing implementer agent — no LLM required.
+    # Performs the exact bd operations a real agent would: claim, comment, close.
+    # Used when SCENARIO_MODE=fake to validate rig-side changes (shim/persona/
+    # Dockerfile) without paying for an LLM run. If this path fails, the bug is
+    # rig-side, not LLM-side.
+
+    echo "[${SCENARIO_ID}] fake-worker: claiming ${BD_STEP_LOOP}..."
+    bd update "${BD_STEP_LOOP}" --claim
+
+    echo "[${SCENARIO_ID}] fake-worker: adding comment to ${BD_STEP_LOOP}..."
+    bd comment "${BD_STEP_LOOP}" "ran: bash -c 'cat /etc/hostname' → vp-07-agent-loop"
+
+    echo "[${SCENARIO_ID}] fake-worker: closing ${BD_STEP_LOOP}..."
+    bd close "${BD_STEP_LOOP}" --reason completed
+
+    echo "[${SCENARIO_ID}] fake-worker: done"
+}
+
 scenario07_close() {
     # Await step-loop close; dump diagnostics on failure.
     # Wait for step-loop to close. A single bead = the scenario is done when it
@@ -216,14 +235,21 @@ scenario07_close() {
 }
 
 main() {
-    scenario07_pour && scenario07_route && scenario07_spawn && scenario07_close
+    if [[ "${SCENARIO_MODE:-real}" == fake ]]; then
+        scenario07_pour
+        scenario07_route
+        scenario07_fake_worker      # replaces spawn + await
+        checkpoint verify
+    else
+        scenario07_pour && scenario07_route && scenario07_spawn && scenario07_close
+    fi
 }
 
 # ---------------------------------------------------------------------------
 # --step dispatcher
 # ---------------------------------------------------------------------------
 
-_VALID_STEPS="pour route spawn close"
+_VALID_STEPS="pour route spawn close fake_worker"
 
 if [[ $# -ge 1 && "$1" == "--step" ]]; then
     if [[ $# -lt 2 ]]; then
@@ -237,6 +263,7 @@ if [[ $# -ge 1 && "$1" == "--step" ]]; then
         route) scenario07_pour && scenario07_route ;;
         spawn) scenario07_pour && scenario07_route && scenario07_spawn ;;
         close) scenario07_pour && scenario07_route && scenario07_spawn && scenario07_close ;;
+        fake_worker) scenario07_pour && scenario07_route && scenario07_fake_worker ;;
         *)
             echo "[${SCENARIO_ID}] ERROR: unknown step '${_STEP}'" >&2
             echo "Valid steps: ${_VALID_STEPS}" >&2

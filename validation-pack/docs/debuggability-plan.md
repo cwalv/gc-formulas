@@ -111,13 +111,20 @@ direction-of-travel + the moves I'd make first.
   failure, replay against a fresh bd to confirm the substrate is the
   variable (or rule it out).
 
-- **No-LLM smoke mode** — each scenario has a "fake worker" path that
+- [x] **No-LLM smoke mode** — each scenario has a "fake worker" path that
   scripts the exact bd operations a passing agent would perform (claim,
   set metadata, append notes, close). Run it pre-flight on every
   scenario. If the fake-worker version fails, the issue is rig-side,
   not LLM-side. This is the manual-walkthrough pattern, formalised.
   Note: validation-pack-design.md already references a planned "fake
   mode"; the bug fo-kdsaw blocked it earlier. Worth unblocking.
+
+  **Proof-of-concept landed (fo-geqsj):** scenario 07 has `scenario07_fake_worker()`
+  which performs `bd update <id> --claim`, `bd comment <id> "ran: bash ..."`, and
+  `bd close <id> --reason completed`. Enable via:
+  `SCENARIO_MODE=fake bash scenarios/07-agent-loop.sh`
+  The verifier runs unchanged against the fake-worker output. Also accessible
+  step-by-step: `bash scenarios/07-agent-loop.sh --step fake_worker`.
 
 - **Single-bead microscope mode** — a 30-second scenario that wisps ONE
   trivial bead, pre-routes it, spawns one agent, and asserts the agent
