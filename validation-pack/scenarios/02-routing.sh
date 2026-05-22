@@ -153,6 +153,55 @@ bd update "${STEP_CLASSIFY}" --set-metadata gc.routed_to=validation/foreman
 echo "[${SCENARIO_ID}]   routed ${STEP_CLASSIFY} to validation/foreman"
 echo "[${SCENARIO_ID}]   step-execute (${STEP_EXECUTE}) left unrouted — foreman will write routing"
 
+# Patch step-classify's description with the LITERAL step-execute bead ID.
+# Original formula description tells the foreman to walk the dep graph to
+# find the sibling — works under gc but fails under ntm haiku, which closes
+# without doing the lookup. Embedding the ID directly removes that step.
+PATCHED_DESC="$(cat <<EOF
+You are acting as a routing agent. Read the work request below, decide which
+persona should handle it, write that routing decision onto the downstream
+execute bead, then close THIS bead to signal you are done.
+
+**The work request to classify:**
+
+> ${ROUTING_INPUT}
+
+**Classification rules:**
+
+- **implementer-work**: the request involves writing, modifying, or debugging
+  code; creating or editing files; running tests; making commits; any hands-on
+  technical change.
+- **treehugger-work**: the request involves reviewing code, auditing changes,
+  landing / merging branches, gate-checking pull requests, or any activity
+  where the output is a verdict or a merge action rather than new code.
+
+If the request is ambiguous, prefer \`implementer-work\`.
+
+**Your lifecycle (execute every step in order; do NOT skip any):**
+
+1. Read this bead:
+       bd show ${STEP_CLASSIFY}
+2. Claim it:
+       bd update ${STEP_CLASSIFY} --claim
+3. Decide the classification: \`implementer\` or \`treehugger\`.
+4. **REQUIRED STEP — DO NOT SKIP**: write the routing decision onto the
+   execute bead. Run this exact command, substituting your decision:
+       bd update ${STEP_EXECUTE} --set-metadata gc.routed_to=validation/<chosen>
+       bd update ${STEP_EXECUTE} --append-notes "Routing decision: <chosen> — <one sentence rationale>"
+   After running, confirm the metadata write succeeded by reading it back:
+       bd show ${STEP_EXECUTE} --json
+   If \`metadata['gc.routed_to']\` is not what you wrote, retry.
+5. Only AFTER step 4 above is confirmed: close this bead:
+       bd close ${STEP_CLASSIFY} --reason="classified"
+
+**Exit criteria**: ${STEP_CLASSIFY} is \`closed\` with reason \`classified\`;
+${STEP_EXECUTE} has \`gc.routed_to=validation/<chosen>\` in its metadata.
+EOF
+)"
+
+bd update "${STEP_CLASSIFY}" --description "${PATCHED_DESC}" >/dev/null
+echo "[${SCENARIO_ID}]   patched step-classify description with literal sibling ID"
+
 # ---------------------------------------------------------------------------
 # 4. Write expected predicate fixture BEFORE spawning the agent
 # ---------------------------------------------------------------------------

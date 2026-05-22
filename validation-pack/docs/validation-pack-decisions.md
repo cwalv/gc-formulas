@@ -229,3 +229,29 @@ Both PASS under SHIM=gc with the same haiku model and the same bead description.
 - C. Switch the ntm persona to a more compliant model (sonnet/opus). Sonnet earlier failed scenario 07's verbosity assertion, but that's orthogonal to the multi-step-following problem.
 
 Leaning toward A first (smallest change, doesn't fight the model); C as fallback.
+
+## Observation update: strengthening kickoff + patching the bead description with literal sibling IDs DID NOT fix vp02n
+
+I tried option A (strengthen kickoff with explicit step-ordering preamble) and a second mitigation: patch step-classify's description after pour to embed the literal step-execute bead ID, removing the dep-graph lookup step entirely. Both runs still ended with the foreman closing step-classify with `reason=classified` but NOT writing `gc.routed_to` on step-execute. Three sequential runs, same outcome.
+
+This strongly suggests the failure isn't haiku "missing" a step — it's that the write itself is being lost. Connect to the parallel-agent substrate observation: the foreman pane runs bd as a separate subprocess, the driver's main process is also running bd polls in parallel, and one of the two `bd update` invocations gets its write overwritten by the other's auto-import-from-JSONL cycle. Even though `BEADS_EXPORT_AUTO=false` is set, the IMPORT side of the cycle still fires on every invocation and uses the on-disk JSONL — which is stale relative to in-dolt writes from concurrent processes.
+
+The cleanest fix is substrate-level: have all bd processes talk to a single shared dolt sql-server instead of using the embedded mode where each invocation manages its own dolt state. That's option C above; large lift.
+
+## Decision: accept multi-process bd concurrency as an ntm-shim coverage gap
+
+**Where we landed:**
+
+- Single-agent ntm scenarios (07: agent-loop): **PASS** under SHIM=ntm. One Claude pane, no concurrent bd writers.
+- Multi-agent / multi-pane ntm scenarios (02, 03, 04, 05, 06): **FAIL** under SHIM=ntm due to multi-process bd concurrency races. Beads disappear from `bd list`, metadata writes get reverted, blocker deps stop blocking, etc. Same failure mode the bd v1.0.4 → v1.0.3 pin was supposed to fix; v1.0.3 fixes the single-process race but not the multi-process one.
+
+**Options for moving forward:**
+- A. Document the gap in the validation-pack README and ship the gc shim as the canonical path for parallel-pattern scenarios; ntm shim covers single-agent scenarios. Mark this in the test matrix.
+- B. Drive a substrate change: bring up a dolt sql-server in the ntm entrypoint, set `BD_DOLT_*` env to point all bd invocations at it, drop embedded mode. Probably 1-2 days of work + bd-side learnings.
+- C. Wrap every ntm `shim_spawn` agent in a serialiser process that owns bd writes — a single bd subprocess on each pane goes through a per-container flock. Less invasive than B but requires custom bd-wrapping.
+
+**Chosen: A (short-term).**
+
+**Why:** the validation-pack's purpose is to exercise the orchestrator-substrate interaction. Discovering that ntm + bd v1.0.3 has a multi-writer hole IS a useful validation finding — it's what we wanted the rig to surface. Forcing it green via B or C right now would hide that finding. Document the gap, file an upstream bd issue (or comment on existing #3948/#3964/#3822), and revisit when the upstream fix lands or when there's appetite for option B.
+
+The ntm shim's correctness for single-agent scenarios (vp07n PASS) is the load-bearing result: it proves the shim primitives (spawn / prime / await) work end-to-end. Multi-agent coverage is blocked on substrate, not on shim design.
