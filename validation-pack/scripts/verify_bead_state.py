@@ -361,13 +361,15 @@ def assert_state(state: dict, predicate: dict, *, live: bool = True) -> bool:
                 print(msg)
 
         # Verify ordering: expected beads must appear in the same relative
-        # order within the actual closed list (by closed_at position).
+        # order by their closed_at timestamp. Use actual_by_id (populated
+        # above via the bd show fallback for ephemerals) rather than the
+        # bd-list-derived actual_closed, which omits closed wisps. bd show
+        # returns closed_at for ephemerals; bd list --status=closed does not.
         expected_ids = [e["bead_id"] for e in expected_closed]
-        actual_order = [
-            item["bead_id"]
-            for item in actual_closed
-            if item["bead_id"] in set(expected_ids)
-        ]
+        actual_order = sorted(
+            [bid for bid in expected_ids if bid in actual_by_id],
+            key=lambda bid: actual_by_id[bid].get("closed_at", ""),
+        )
         if actual_order != expected_ids:
             print(
                 f"FAIL: closed order mismatch: "
