@@ -69,6 +69,25 @@ Per case, per run:
 
 Each case run multiple times (5-10) to get distributions, not single points.
 
+## Model calibration
+
+**Worker model must be at the edge of its capability for the task tier.** Otherwise the pattern doesn't matter — a sufficiently strong worker one-shots everything and ralph wins by default. Differentiation lives in the regime where the worker model needs help.
+
+| Role | Default model | Why |
+|---|---|---|
+| Worker | **haiku** (currently 4.5) | Weakest; task tier calibrated to its edge — multi-file consistency, context-management, etc. start failing here |
+| Planner | sonnet or opus | Decomposition quality matters; planner is one call vs N worker calls so cost is bounded |
+| Evaluator (in eval-optimizer pattern) | sonnet | Needs to judge well but is a rare call |
+| Case author (offline, one-time) | opus | Authoring quality matters; not what we're evaluating |
+
+This gives the eval a built-in regression mechanism: as haiku gets smarter, tasks that used to differentiate stop differentiating. Two valid outcomes:
+1. The corpus needs harder cases (capability frontier moved; the eval shows it).
+2. Haiku is now strong enough for ralph-mode (a real finding about model capability).
+
+Either way the eval becomes a tracking surface for *where the capability frontier moves*, not a static benchmark.
+
+**The core question this frames empirically:** "does orchestration close the gap so a haiku-shaped team produces opus-shaped output?" If yes, the orchestration pillar pays for itself across model classes — you can scale work using cheap models if the structure is right. If no (orchestration overhead exceeds the capability lift), the position has to retreat.
+
 ## Comparison axes
 
 What you'd vary to learn:
