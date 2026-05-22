@@ -85,15 +85,16 @@ COPY --chown=agent:agent validation-pack/ /home/agent/validation-pack/
 
 USER agent
 
-# Disable bd's automatic JSONL export on every CLI invocation. The default
-# (auto-export = on) writes .beads/issues.jsonl after each bd write, which
-# causes lost-update races when multiple bd processes (claude + gc
-# control-dispatcher + supervisor's order machinery) interleave their
-# Disable bd's auto-export-on-write — JSONL is only refreshed via explicit
-# `bd export`. In-dolt state persists across bd invocations regardless
-# (confirmed empirically), so the JSONL doesn't need to be live. Keeps
-# concurrent bd writes (e.g. driver + agent) from racing on the JSONL file.
-ENV BEADS_EXPORT_AUTO=false
+# NOTE: there is no BEADS_EXPORT_AUTO env var in bd v1.0.3 — earlier sessions
+# set ENV BEADS_EXPORT_AUTO=false which was a no-op (auto-export defaulted ON
+# the entire time). The real config key is `export.auto` in .beads/config.yaml;
+# we set it via `bd config set export.auto false` in the RUN that does bd init
+# below.
+#
+# With auto-export off, no bd write touches issues.jsonl. With no JSONL file
+# (or an empty one), the auto-import guard in cmd/bd/auto_import_upgrade.go
+# trips on info.Size() == 0 and skips import entirely. Net effect: a single
+# source of truth (embedded dolt), no JSONL race, no stale-import overwrites.
 
 # Identity for dolt and git. gc's supervisor spawns an external dolt sql-server
 # for the city, and dolt refuses to start without a configured identity. Global
@@ -114,7 +115,9 @@ RUN git config --global user.name  "agent" \
 # block no longer carries those settings (removed during this bead).
 RUN cd /home/agent/validation-pack && bd init --prefix=vp --non-interactive \
     && bd config set dolt.auto-commit on \
-    && bd config set dolt.auto-start on
+    && bd config set dolt.auto-start on \
+    && bd config set export.auto false \
+    && rm -f .beads/issues.jsonl
 
 # Pre-seed Claude Code's user-level config so the first-run wizard doesn't
 # block the spawned agent on theme/UI choices. Without this, claude in a
