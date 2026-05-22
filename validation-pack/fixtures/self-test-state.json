@@ -24,6 +24,17 @@
       "metadata": {},
       "notes": "iterate: second pass also revised\napproved on third pass",
       "comments": ["iterate: second pass also revised", "approved on third pass"]
+    },
+    "sc-g": {
+      "metadata": {},
+      "notes": "",
+      "comments": []
+    },
+    "sc-h": {
+      "assignee": "worker-agent",
+      "metadata": {},
+      "notes": "agent claimed it",
+      "comments": []
     }
   }
 }

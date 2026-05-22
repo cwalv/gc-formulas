@@ -49,6 +49,10 @@ Predicate schema (fixtures/<scenario>-expected.json):
     "comments_contain": [
         {"bead_id": "...", "value": "<substring>"},
         ...
+    ],
+    "manual_check": [
+        {"kind": "manual_check", "bead": "...", "field": "comments"|"notes", "max_len": 200},
+        ...
     ]
 }
 
@@ -71,6 +75,15 @@ Predicate schema (fixtures/<scenario>-expected.json):
 - comments_contain: each listed bead must have at least one comment whose
   text contains value as a substring. Reads `bd show <id> --json | .[0].comments`
   (array of objects with a `text` field, or list of strings).
+- manual_check: non-asserting predicate. Records a truncated snippet of
+  the named field ("comments" or "notes") alongside any fail output for the
+  same bead, or as an INFO line when the assertion passes. Helps operators
+  see what the bead actually contains without re-running bd manually.
+  Schema: {"kind": "manual_check", "bead": "<id>", "field": "comments"|"notes",
+           "max_len": <int>}  (max_len defaults to 200).
+  When a notes_contains or comments_contain assertion fails for the same bead,
+  the snippet appears indented under the FAIL line. Use alongside assertions
+  for surgical content inspection.
 
 Synthetic state schema (fixtures/self-test-state.json):
 {
@@ -450,6 +463,110 @@ def assert_state(state: dict, predicate: dict, *, live: bool = True) -> bool:
                     f"PASS: bead {bead_id!r} assignee={expected_value!r}"
                 )
 
+    # ------------------------------------------------------------------ #
+    # Failure-mode classifier                                              #
+    # Runs after any individual assertion failure to print one diagnostic  #
+    # line describing the bead's observable state. Covers four cases:      #
+    #   - not claimed + not closed  → agent never picked it up             #
+    #   - claimed but not closed    → agent started, didn't finish         #
+    #   - closed but no comments    → agent closed without recording work  #
+    #   - has comments, content mismatch → agent worked but wrote wrong    #
+    # ------------------------------------------------------------------ #
+    def _bead_status_for_diag(bead_id: str) -> dict:
+        """Return lightweight status dict for the classifier.
+
+        In self-test mode reads from state; in live mode calls bd show.
+        Returns keys: status, assignee, comment_count.
+        """
+        if not live:
+            details = state.get("bead_details", {}).get(bead_id, {})
+            assignee = details.get("assignee") or ""
+            comments = details.get("comments") or []
+            # Infer status from synthetic state lists
+            closed_ids = {c["bead_id"] for c in state.get("closed", [])}
+            hooked_ids = {h["bead_id"] for h in state.get("hooked", [])}
+            open_ids = {o["bead_id"] for o in state.get("open", [])}
+            if bead_id in closed_ids:
+                status = "closed"
+            elif bead_id in hooked_ids:
+                status = "hooked"
+            elif bead_id in open_ids:
+                status = "open"
+            else:
+                status = "unknown"
+            return {"status": status, "assignee": assignee, "comment_count": len(comments)}
+        # Live: fetch from bd show
+        try:
+            rows = _run_bd("show", bead_id)
+            item = rows[0] if isinstance(rows, list) and rows else {}
+            assignee = item.get("assignee") or ""
+            raw_comments = item.get("comments") or []
+            return {
+                "status": item.get("status", "unknown"),
+                "assignee": assignee,
+                "comment_count": len(raw_comments),
+            }
+        except SystemExit:
+            return {"status": "unknown", "assignee": "", "comment_count": 0}
+
+    def _print_diagnosis(bead_id: str) -> None:
+        """Print one indented diagnosis line after a FAIL for bead_id."""
+        d = _bead_status_for_diag(bead_id)
+        status = d["status"]
+        assignee = d["assignee"]
+        comment_count = d["comment_count"]
+        claimed = bool(assignee)
+
+        if status != "closed" and not claimed:
+            label = "never claimed"
+        elif status != "closed" and claimed:
+            label = "claimed but not closed"
+        elif status == "closed" and comment_count == 0:
+            label = "closed, no comments"
+        else:
+            label = f"non-empty, no match" if comment_count > 0 else "empty"
+
+        claimed_str = "yes" if claimed else "no"
+        closed_str = "yes" if status == "closed" else "no"
+        print(
+            f"  diagnosis: claimed={claimed_str}, closed={closed_str},"
+            f" comment_count={comment_count} ({label})",
+            file=sys.stderr,
+        )
+
+    # ------------------------------------------------------------------ #
+    # manual_check predicate index                                         #
+    # Predicates of kind="manual_check" record a field snippet alongside  #
+    # fail output (or as INFO when the assertion passes). They do not     #
+    # assert anything themselves — see comments_contain/notes_contains     #
+    # for the asserting counterparts.                                      #
+    # Schema: {"kind": "manual_check", "bead": "<id>",                    #
+    #          "field": "comments"|"notes", "max_len": <int>}             #
+    # ------------------------------------------------------------------ #
+    _manual_checks: dict[str, list[dict]] = {}  # bead_id -> list of check specs
+    for mc in predicate.get("manual_check", []):
+        bid = mc.get("bead") or mc.get("bead_id", "")
+        _manual_checks.setdefault(bid, []).append(mc)
+
+    def _emit_manual_checks(bead_id: str, *, as_info: bool = False) -> None:
+        """Print manual_check output for bead_id, if any checks are registered."""
+        for mc in _manual_checks.get(bead_id, []):
+            field = mc.get("field", "comments")
+            max_len = int(mc.get("max_len", 200))
+            if field == "comments":
+                texts = _get_comments(bead_id)
+                raw = " | ".join(texts)
+            else:  # notes
+                raw = _get_notes(bead_id)
+            snippet = raw[:max_len]
+            truncated = len(raw) > max_len
+            suffix = "... (truncated)" if truncated else ""
+            tag = "INFO" if as_info else "FAIL"
+            print(
+                f"  manual_check ({field}): {snippet!r}{suffix}",
+                file=sys.stdout if as_info else sys.stderr,
+            )
+
     # --- notes_contains ---
     if "notes_contains" in predicate:
         for exp in predicate["notes_contains"]:
@@ -461,11 +578,14 @@ def assert_state(state: dict, predicate: dict, *, live: bool = True) -> bool:
                     f"FAIL: bead {bead_id!r} notes do not contain {substring!r}",
                     file=sys.stderr,
                 )
+                _print_diagnosis(bead_id)
+                _emit_manual_checks(bead_id, as_info=False)
                 all_passed = False
             else:
                 print(
                     f"PASS: bead {bead_id!r} notes contain {substring!r}"
                 )
+                _emit_manual_checks(bead_id, as_info=True)
 
     # --- comments_contain ---
     if "comments_contain" in predicate:
@@ -478,11 +598,25 @@ def assert_state(state: dict, predicate: dict, *, live: bool = True) -> bool:
                     f"FAIL: bead {bead_id!r} comments do not contain {substring!r}",
                     file=sys.stderr,
                 )
+                _print_diagnosis(bead_id)
+                _emit_manual_checks(bead_id, as_info=False)
                 all_passed = False
             else:
                 print(
                     f"PASS: bead {bead_id!r} comments contain {substring!r}"
                 )
+                _emit_manual_checks(bead_id, as_info=True)
+
+    # --- manual_check (standalone pass) ---
+    # Emit any manual_check entries for beads not already processed above.
+    # This handles manual_check-only predicates (no notes/comments assertion).
+    _processed_by_above = set()
+    for section in ("notes_contains", "comments_contain"):
+        for exp in predicate.get(section, []):
+            _processed_by_above.add(exp["bead_id"])
+    for bead_id in _manual_checks:
+        if bead_id not in _processed_by_above:
+            _emit_manual_checks(bead_id, as_info=True)
 
     return all_passed
 

@@ -21,5 +21,21 @@
   "comments_contain": [
     {"bead_id": "sc-e", "value": "iterate:"},
     {"bead_id": "sc-f", "value": "iterate:"}
+  ],
+  "manual_check": [
+    {
+      "_comment": "Records actual comments content alongside sc-f assertion output (passes — appears as INFO).",
+      "kind": "manual_check",
+      "bead": "sc-f",
+      "field": "comments",
+      "max_len": 120
+    },
+    {
+      "_comment": "Records actual notes content alongside sc-e assertion output (passes — appears as INFO).",
+      "kind": "manual_check",
+      "bead": "sc-e",
+      "field": "notes",
+      "max_len": 80
+    }
   ]
 }
