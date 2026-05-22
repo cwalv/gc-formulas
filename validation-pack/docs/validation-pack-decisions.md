@@ -353,3 +353,111 @@ Read: gc shim is 7-for-7 at the workflow-pattern layer. ntm shim is 1-for-7 at t
 **Why `--unassigned` was removed from pool polls:** `bd update --claim` overwrites the assignee from the pool name to the session name. Since `bd ready` returns only open (not in_progress) beads, claimed beads naturally drop off the query without any `--unassigned` filter. Adding `--unassigned` would filter to assignee=null, excluding pool-assigned but unclaimed beads entirely.
 
 **Historical references to `gc.routed_to` left intact:** prior decisions sections (bd#4082 description, jq-workaround history, ntm concurrency analysis) are preserved as-is — they are accurate historical record of how we got here.
+
+## Correction: `BEADS_EXPORT_AUTO` is not a real bd env var; supersedes sections above
+
+The earlier sections "Observation update", "Decision: accept multi-process bd concurrency as an ntm-shim coverage gap", and "Late-session finding: bd multi-process write-loss is real under gc-supervisor load" all rest on the assumption that `ENV BEADS_EXPORT_AUTO=false` in the Dockerfile was disabling bd's auto-export. **It wasn't.** bd v1.0.3 does not read an env var by that name. The real config key is `export.auto` in `.beads/config.yaml`, set via `bd config set export.auto false`.
+
+That means: during every scenario above the diagnosis came from, auto-export was **ON**. Every `bd update` was writing to JSONL on disk. The "multi-process write-loss under gc-supervisor load" was the predictable consequence — JSONL piled up, the auto-import-from-JSONL guard fired in concurrent supervisor bd processes, and earlier in-dolt writes got overwritten.
+
+Two fixes landed (Dockerfile, commit `805a19e`):
+
+1. `bd config set export.auto false` (real key, in `.beads/config.yaml`) so auto-export no longer fires on bd writes.
+2. `rm -f .beads/issues.jsonl` after `bd init` so the JSONL file doesn't exist at runtime. The auto-import guard in `cmd/bd/auto_import_upgrade.go` then trips on `info.Size() == 0` and skips entirely. Single source of truth: embedded dolt.
+
+The "shared dolt sql-server" workaround mentioned in the late-session finding is **not needed** at this rig's load level. PR #3691 / commit `1cf833734` on bd main is also not needed for us — `rm`'ing the JSONL achieves the same end (the auto-import guard never fires) without a bd source change.
+
+**bd-bug workaround status (corrected):**
+
+| Bug | Workaround in our rig | Status |
+|---|---|---|
+| bd#4082 (`--include-ephemeral --metadata-field` ignored) | use `--assignee` for routing | ✅ |
+| bd#3964 (`--append-notes` silent-drop) | use `bd comment` (separate row, no field-append race) | ✅ |
+| bd#3948 (auto-import fires unconditionally) | `bd config set export.auto false` + delete JSONL at build time | ✅ |
+| bd#3822 (Import/Export JSONL in server mode → data loss) | covered by same fix (no JSONL = no import) | ✅ |
+
+## Decision: scenario 06 forced-iterate marker lives in `bd comment`, not `--notes`
+
+**Symptom:** scenario 06's verifier asserted `notes_contains: 'iterate: forced-round-1'` on the step-iterate bead. The bead closed `approved` with 3 comments (real iteration happened), but `notes` was `"draft submitted"` — the implementer's most-recent draft-trace string. Verifier FAIL even though the workflow was correct.
+
+**Root cause:** `bd update --notes "..."` is a single-value field write — it replaces the prior notes content. The evaluator wrote `iterate: forced-round-1: ...` on round 1, then the implementer's round-2 submission wrote `draft submitted`, overwriting the marker.
+
+This is *different* from bd#3964 (the `--append-notes` silent-drop race, an actual substrate bug) — `--notes` is working as designed; it's just incompatible with the assertion we wanted. **Same fix, though:** `bd comment` (append-only by design) preserves both writes side-by-side.
+
+**Options:**
+- A. Switch the marker to `bd comment` + change the fixture to `comments_contain`. Comments append; the marker is preserved across iterations.
+- B. Add a metadata field set by the evaluator (e.g., `vp.forced_iterate_round_1=true`). Per-key overwrites are scope-limited, but uses metadata as trace.
+- C. Have the implementer preserve the evaluator's notes prefix. Fragile coupling between personas.
+
+**Chosen: A.** Comments are already the rig's convention for traces (sidesteps bd#3964); using them here unifies the pattern.
+
+Landed in commit `cdcd6d1` — both evaluator personas (`personas/evaluator.md`, `personas/ntm-evaluator.md`) emit `bd comment <id> "iterate: ..."` alongside the `bd update --notes` (notes still useful for the implementer to read the feedback; comment carries the verifier-visible trace). Fixture in `scenarios/06-evaluator-optimizer.sh` changed from `notes_contains` to `comments_contain`.
+
+## Decision: `closed_in_order` ordering uses the bd show fallback dict
+
+**Symptom (scenario 05, multi-wisp scenarios in general):** verifier's `closed_in_order` predicate reported `actual=[]` even when all individual per-bead reason assertions passed. Order check failed; all reason checks succeeded.
+
+**Root cause:** `closed_in_order` had two sub-checks: per-bead reason (which used `_check_reason`, which has a `bd show <id>` fallback for ephemerals) and ordering (which iterated `actual_closed`, the list built from `bd list --status=closed`). `bd list` does NOT accept `--include-ephemeral` (only `bd ready` does), so for wisp-only scenarios `actual_closed` was empty. The order check therefore saw `[]` and reported mismatch.
+
+**Options:**
+- A. Reuse `actual_by_id` (populated transparently via the `bd show` fallback in `_check_reason`) for the ordering computation. Single small edit.
+- B. Track close order via a sequence file written by drivers. Intrusive; couples ordering signal to driver state.
+- C. Drop the ordering assertion. Loses signal.
+
+**Chosen: A.** The fallback already had the data — the ordering check was reading from the wrong dict.
+
+Landed in commit `afaf1e4`. `closed_in_order` now sorts `expected_ids` by `actual_by_id[bid]["closed_at"]`, same data source as the per-bead reason checks.
+
+## Coverage matrix — actual, post-fix data
+
+Re-smoke after substrate fix (`805a19e`) + scenario 06 marker fix (`cdcd6d1`) + verifier ordering fix (`afaf1e4`) + scenario step-refactor (`bc1f419`).
+
+Re-smoke was done in two phases. **Phase 1 — full parallel (all 14 at once):** surfaced docker-daemon contention. 7 gc supervisors trying to boot at the same time + a concurrent docker build (substrate-replay subagent's image rebuild) caused all 7 gc scenarios to fail at supervisor adoption (~213s uniform timing). ntm scenarios were unaffected (no supervisor). 5/7 ntm PASS, 0/7 gc PASS, 1 ntm TIMEOUT, 1 ntm scenario-design FAIL.
+
+**Phase 2 — serial gc + parallel ntm, post-fixes, image rebuilt:**
+
+| Scenario | SHIM=gc | SHIM=ntm |
+|---|---|---|
+| 01 prompt-chaining | PASS (150s serial) | PASS (152s parallel) |
+| 02 routing | PASS (133s serial) | PASS (92s parallel) |
+| 03 sectioning | PASS (178s serial) | PASS (263s parallel) |
+| 04 voting | PASS (155s serial) | PASS (268s parallel) |
+| 05 orchestrator-workers | PASS (299s after fix) | PASS (164s serial) |
+| 06 evaluator-optimizer | PASS (453s after cdcd6d1) | PASS (177s after b3d68ce) |
+| 07 agent-loop | PASS (101s) | PASS (50s) |
+
+**Verdict:** under serial docker load (one container at a time), the substrate fix + three rig-side fixes (cdcd6d1, afaf1e4, b3d68ce) give 7-for-7 under gc and 7-for-7 under ntm. Multi-agent ntm scenarios (03 sectioning, 04 voting, 05 orchestrator-workers) — previously claimed as "FAIL due to multi-process bd concurrency races" — actually pass cleanly. The earlier diagnosis was wrong because the substrate fix wasn't actually applied (the env var was a no-op).
+
+**Outstanding caveat:** under heavy parallel docker load (all 7 gc scenarios + concurrent image build), gc scenarios uniformly fail at supervisor adoption. The host docker daemon can't service that many simultaneous supervisor bootstraps. This is an operational ceiling, not a substrate bug — running scenarios serially or in small batches (≤3) avoids it.
+
+## Decision: ntm personas poll-with-retry to survive ping-pong handoffs
+
+**Symptom:** scenario 06 under ntm deadlocked on round 2. The implementer submitted round 1, the evaluator iterated (assigned back to implementer + emitted `iterate: forced-round-1`), then the evaluator's poll returned empty (the bead was now assigned to implementer) and the evaluator pane exited. When the implementer submitted round 2 and reassigned to evaluator, there was no evaluator pane left to pick it up — the bead stayed open until timeout.
+
+**Root cause:** ntm has no reconciler. Under gc, `min_active_sessions = 1` on the persona keeps both the evaluator and implementer panes alive across handoffs — the reconciler re-spawns any pane that exits. ntm has no equivalent; once a persona's work-loop sees an empty queue and exits, it's gone for the duration of the scenario.
+
+This wasn't caught earlier because:
+- The earlier session's verdict ("ntm 1-for-7") came from a substrate-broken run; the deadlock-on-ping-pong issue was hidden behind earlier failures.
+- The `.ntm/personas.toml` has its own embedded copy of the system prompt (not loaded from the `.md` files); my earlier `.md`-only edit to add `bd comment` didn't take effect at runtime. Both files now in sync.
+
+**Options:**
+- A. Poll-with-retry in the persona work-loop — sleep N seconds + retry M times on empty queue before exit. ~3min of patience matches haiku's round-trip time and is plenty.
+- B. Driver-level orchestration — scenario driver respawns evaluator/implementer after each role switch. Couples driver to scenario semantics; less reusable.
+- C. Build a minimal reconciler into the ntm shim. Bigger lift; ntm-the-product would push back.
+
+**Chosen: A.** Smallest persona-text edit; no shim changes. Lives entirely in the prompt.
+
+Landed in commit `b3d68ce`. Both `vp-implementer` and `vp-evaluator` in `.ntm/personas.toml` (and the corresponding `.md` docs) now have a 6-iteration sleep+retry loop (`sleep 30; retry`) before exiting on empty. Confirmed: ntm-06 PASS at 177s end-to-end.
+
+## Decision: parallel-batch ceiling — run gc scenarios ≤3 at a time
+
+**Context:** the full-parallel re-smoke exposed a hard ceiling: 7 simultaneous gc supervisor boots saturate docker's daemon and all fail at "Adopting sessions" with no diagnostic in the container log (the supervisor's own log is inside the container, which gets `--rm`'d). Without the parallel-docker-load context, this looked like a substrate regression — it isn't.
+
+**Options:**
+- A. Document the limit; run gc scenarios serial or in small batches in the rig harness. ntm scenarios can parallelize freely (no supervisor).
+- B. Add a host-side wrapper that throttles concurrent `docker compose run` invocations for SHIM=gc.
+- C. Capture supervisor startup time histograms and surface a "you are running too many gc containers" warning when concurrent count >3.
+
+**Chosen: A.** Easiest; matches how operators would actually run the rig.
+
+Document captured here so the next operator doesn't mistake a parallel-load failure for a substrate regression.
