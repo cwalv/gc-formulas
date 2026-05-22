@@ -140,11 +140,11 @@ scenario06_route() {
     #   reasons; this is flagged as an open implementation question — see scenario
     #   report notes.)
     #
-    # notes_contains: confirms at least one iteration fired — the evaluator wrote
-    #   an "iterate: ..." feedback string via --notes before the terminal close.
-    #   This uses the notes field (single --notes write, not multi-append), which
-    #   is the evaluator's iterate mechanism. Without this check, a trivial
-    #   single-pass approve wouldn't exercise the ping-pong mechanism at all.
+    # comments_contain: confirms at least one iteration fired — the evaluator
+    #   emits a `bd comment "iterate: forced-round-1: ..."` on its first review.
+    #   We assert on comments (append-only) rather than notes (single-field,
+    #   overwritten by the implementer's next draft); the marker would
+    #   otherwise vanish from notes after round-2 implementer write-through.
 
     mkdir -p "${PACK_ROOT}/fixtures"
     cat > "${PACK_ROOT}/fixtures/${SCENARIO_ID}-expected.json" <<EOF
@@ -155,7 +155,7 @@ scenario06_route() {
       "reason_one_of": ["approved", "max-iterations-reached"]
     }
   ],
-  "notes_contains": [
+  "comments_contain": [
     {
       "bead_id": "${BD_STEP_ITERATE}",
       "value": "iterate: forced-round-1"

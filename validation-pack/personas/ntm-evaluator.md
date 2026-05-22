@@ -54,12 +54,16 @@ bd show "$BEAD_ID"
 #   can act on, not a vague placeholder.
 #
 #   - **Round 1 (iteration count == 0) — force iterate**:
+#       bd comment "$BEAD_ID" "iterate: forced-round-1: add a one-line rationale below the haiku explaining your color choice"
 #       bd update "$BEAD_ID" --status=open \
 #           --notes "iterate: forced-round-1: add a one-line rationale below the haiku explaining your color choice" \
 #           --assignee=validation/implementer
+#     The bd comment preserves the iterate trace even if a later --notes write
+#     overwrites the notes field (single-value field; comments append).
 #   - **Approve** (iteration count >= 1 AND draft meets requirements):
 #       bd close "$BEAD_ID" --reason="approved"
 #   - **Iterate** (iteration count >= 1 AND iteration count < 3, draft needs work):
+#       bd comment "$BEAD_ID" "iterate: <specific actionable feedback>"
 #       bd update "$BEAD_ID" --status=open \
 #           --notes "iterate: <specific actionable feedback>" \
 #           --assignee=validation/implementer
