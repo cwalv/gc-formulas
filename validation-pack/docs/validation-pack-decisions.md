@@ -304,12 +304,23 @@ Under the gc supervisor active in a scenario container, there is a steady stream
 
 Symptom in artifacts: `bd-export.jsonl` shows the bead `status=open, comment_count=3` (the comments wrote successfully via `bd comment` rows — those don't conflict — but the close on the bead itself reverted).
 
-There is no in-bd-v1.0.3 setting that makes multi-process safe:
+There is no in-bd-v1.0.3 setting that makes multi-process safe. The reason is asymmetric:
 
-- `EXPORT_AUTO=false` (current): stale JSONL re-imports revert recent writes.
-- `EXPORT_AUTO=true`: concurrent writes race on the JSONL file (last-writer-wins).
+- `BEADS_EXPORT_AUTO=false` (current) disables the *export* side: bd no longer writes JSONL back to disk after each operation.
+- bd v1.0.3 has **no equivalent flag for the auto-import side**. The auto-import code path ("auto-importing N bytes from issues.jsonl into empty database" — the message in every log) runs on every bd invocation and is unconditional. Confirmed by grepping the binary: no `BEADS_*IMPORT*` env vars, no `auto-import.disabled` config key.
+- So even with EXPORT off, every supervisor bd invocation imports the stale JSONL into a fresh dolt before doing its work, overwriting any in-dolt state that wasn't yet exported. We disabled half the race; the other half still fires.
+- Toggling EXPORT_AUTO back to `true` swaps one failure mode for another: concurrent processes race on the JSONL file (last-writer-wins).
 
-The proper fix is a single shared dolt sql-server that all bd processes connect to, or bd main's commit `1cf833734` (PR #3691) which restores the emptiness guard so auto-import is skipped when dolt already has data. We're pinned to v1.0.3 and not running main.
+The proper fix is bd main's commit `1cf833734` (PR #3691), which restores the emptiness guard so auto-import is skipped when dolt already has data — that's the fix that actually kills the IMPORT side. Alternatively, a single shared dolt sql-server that all bd processes connect to (so no per-invocation import-from-JSONL at all). We're pinned to v1.0.3 and not running main.
+
+**bd-bug workaround status (precise):**
+
+| Bug | Workaround in our rig | Status |
+|---|---|---|
+| bd#4082 (`--include-ephemeral --metadata-field` ignored) | use `--assignee` for routing | ✅ |
+| bd#3964 (`--append-notes` silent-drop) | use `bd comment` (separate row, no field-append race) | ✅ |
+| bd#3948 (auto-import fires unconditionally → multi-process write loss) | none — needs bd main / shared-server fix | ❌ |
+| bd#3822 (Import/Export JSONL in server mode → data loss) | partial: EXPORT side off; IMPORT side has no flag on v1.0.3 | ❌ |
 
 **Implication for the rig:** the gc-shim scenarios pass *as workflow shapes* — the bead DAG materialises, agents do real work, comments record the trace, etc. — but the verifier's "is the bead still closed at read time" check is fragile against the supervisor's background activity. Same `bd v1.0.3` bug catalogue we filed up-thread (#3948, #3964, #3822, #4082). The ntm shim path that doesn't run the gc supervisor avoids this specific race (but has its own multi-agent races among the worker bd processes).
 
