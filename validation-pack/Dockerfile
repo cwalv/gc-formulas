@@ -133,16 +133,19 @@ RUN cd /home/agent/validation-pack && bd init --prefix=vp --non-interactive \
 # (at $HOME root, not under .claude/) is the file Claude Code reads to
 # determine onboarding state. Setting `theme` + `numStartups` > 0 skips
 # the wizard entirely.
-# Build the .claude.json with onboarding-complete flags + a single pre-trust
-# entry for the shared ntm projects_base directory. The ntm shim sets
-# projects_base = ~/ntm-sessions; all sessions (vp-<scenario>-<persona>)
-# create subdirs under that root at spawn time. A single trust entry for
-# ~/ntm-sessions covers the common parent that Claude Code checks when
-# deciding whether to show the "Trust this folder?" dialog.
-# (Previously: 28 per-(scenario,persona) entries + 8 bare scenario paths.
-#  Now: 1 entry for the shared root.)
-RUN mkdir -p /home/agent/ntm-sessions
-RUN python3 -c "import json; e={'hasTrustDialogAccepted':True,'allowedTools':[],'mcpContextUris':[],'mcpServers':{},'enabledMcpjsonServers':[],'disabledMcpjsonServers':[],'projectOnboardingSeenCount':1}; p={'/home/agent/ntm-sessions':e}; d={'numStartups':1,'theme':'dark','hasCompletedOnboarding':True,'hasSeenTasksHint':True,'autoUpdates':False,'bypassPermissionsModeAccepted':True,'projects':p}; open('/home/agent/.claude.json','w').write(json.dumps(d))"
+# Build the .claude.json with onboarding-complete flags + pre-trust for every
+# session path the ntm shim will create at runtime. The ntm shim uses
+# `projects_base/vp-<scenario-id>` as the session directory; Claude shows
+# a "Trust this folder?" dialog the first time it runs in any new directory.
+# In a non-TTY container that dialog reads no stdin and aborts — same class
+# of bug as the bypass-permissions warning above. Trust the seven scenario
+# directories upfront. (Trust is path-specific; there's no global "trust
+# everything" flag, and Claude only skips the dialog under `-p` / piped stdout,
+# which we can't use for an interactive agent loop.)
+# ntm shim uses per-persona sessions: vp-<scenario-id>-<persona>. Pre-trust
+# every (scenario, persona) cell plus the bare per-scenario path for any
+# backward-compat callers. (Trust is path-keyed; no global "trust everything".)
+RUN python3 -c "import json; sc=['00-microscope','01-prompt-chaining','02-routing','03-sectioning','04-voting','05-orchestrator-workers','06-evaluator-optimizer','07-agent-loop']; ps=['foreman','implementer','evaluator','treehugger']; e={'hasTrustDialogAccepted':True,'allowedTools':[],'mcpContextUris':[],'mcpServers':{},'enabledMcpjsonServers':[],'disabledMcpjsonServers':[],'projectOnboardingSeenCount':1}; p={f'/home/agent/ntm-work/vp-{s}-{x}':e for s in sc for x in ps}; p.update({f'/home/agent/ntm-work/vp-{s}':e for s in sc}); d={'numStartups':1,'theme':'dark','hasCompletedOnboarding':True,'hasSeenTasksHint':True,'autoUpdates':False,'bypassPermissionsModeAccepted':True,'projects':p}; open('/home/agent/.claude.json','w').write(json.dumps(d))"
 
 # Register gc's required custom issue types in bd's types.custom config so
 # gc sling / gc session / gc converge accept beads of those types. Without

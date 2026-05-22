@@ -89,11 +89,8 @@ _ntm_session_name() {
 # NTM_CONFIG: point ntm at a writable config in the container. ntm needs a
 # projects_base it can mkdir. Default to /home/agent/ntm-work.
 _ntm_ensure_config() {
-    # Single shared project dir for all ntm sessions. All sessions (vp-<scenario>-<persona>)
-    # resolve to subdirs of this path at runtime. Trusting this one path in .claude.json
-    # covers the common parent; see Dockerfile for the pre-trust entry.
-    local ntm_sessions="${HOME}/ntm-sessions"
-    mkdir -p "${ntm_sessions}"
+    local ntm_work="${HOME}/ntm-work"
+    mkdir -p "${ntm_work}"
 
     # If NTM_CONFIG is already set (e.g. injected by entrypoint), leave it.
     if [[ -n "${NTM_CONFIG:-}" ]]; then
@@ -108,10 +105,7 @@ _ntm_ensure_config() {
     if [[ ! -f "${config_file}" ]]; then
         cat > "${config_file}" <<EOF
 # ntm config for validation-pack container
-# All ntm sessions share this projects_base; each session gets a subdir
-# (projects_base/<session-name>) at spawn time. The Dockerfile pre-trusts
-# this single path so Claude Code skips the "Trust this folder?" dialog.
-projects_base = "${ntm_sessions}"
+projects_base = "${ntm_work}"
 EOF
     fi
 
