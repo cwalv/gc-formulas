@@ -120,6 +120,12 @@ if [[ "${DRIVER_RC}" -ne 0 || "${VERIFIER_RC}" -ne 0 ]]; then
         bd export 2>/dev/null > "${artifacts_dir}/beads/bd-export.jsonl" || true
     fi
 
+    # bd invocation trace (populated when DEBUG_BD_RECORD=1 was set for the run).
+    _bd_trace="${DEBUG_BD_TRACE:-/home/agent/debug-artifacts/bd-trace.jsonl}"
+    if [[ -f "${_bd_trace}" ]]; then
+        cp "${_bd_trace}" "${artifacts_dir}/bd-trace.jsonl" 2>/dev/null || true
+    fi
+
     # The fixture predicate the verifier was asserting against.
     cp "${PACK_ROOT}/fixtures/${SCENARIO_ID}-expected.json" "${artifacts_dir}/" 2>/dev/null || true
 

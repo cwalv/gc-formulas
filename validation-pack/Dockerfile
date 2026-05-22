@@ -40,8 +40,15 @@ RUN curl -fsSL \
     -o /tmp/beads.tar.gz \
     && echo "1ef5dca818d7e81574df9e9f9fc2a16ab711da09b0fa7b822ae162d9a81c8912  /tmp/beads.tar.gz" | sha256sum -c - \
     && tar -xzf /tmp/beads.tar.gz -C /usr/local/bin bd \
-    && chmod +x /usr/local/bin/bd \
+    && mv /usr/local/bin/bd /usr/local/bin/bd-real \
+    && chmod +x /usr/local/bin/bd-real \
     && rm /tmp/beads.tar.gz
+# Install bd-record-shim as /usr/local/bin/bd.  When DEBUG_BD_RECORD is unset
+# or 0 (the default) the shim is a cheap exec pass-through to bd-real with
+# negligible per-call overhead.  Set DEBUG_BD_RECORD=1 at runtime to enable
+# JSONL tracing to ${DEBUG_BD_TRACE:-/home/agent/debug-artifacts/bd-trace.jsonl}.
+COPY validation-pack/scripts/bd-record-shim.sh /usr/local/bin/bd
+RUN chmod +x /usr/local/bin/bd
 
 # gc CLI — gastownhall/gascity v1.1.0 (prebuilt linux/amd64 release tarball)
 # SHA256: b6983ff515d3b7785c00ab1b53948fdae2cc6f6ee88bfc0b60a7c3bca72ab78b
@@ -138,7 +145,7 @@ RUN cd /home/agent/validation-pack && bd init --prefix=vp --non-interactive \
 # ntm shim uses per-persona sessions: vp-<scenario-id>-<persona>. Pre-trust
 # every (scenario, persona) cell plus the bare per-scenario path for any
 # backward-compat callers. (Trust is path-keyed; no global "trust everything".)
-RUN python3 -c "import json; sc=['01-prompt-chaining','02-routing','03-sectioning','04-voting','05-orchestrator-workers','06-evaluator-optimizer','07-agent-loop']; ps=['foreman','implementer','evaluator','treehugger']; e={'hasTrustDialogAccepted':True,'allowedTools':[],'mcpContextUris':[],'mcpServers':{},'enabledMcpjsonServers':[],'disabledMcpjsonServers':[],'projectOnboardingSeenCount':1}; p={f'/home/agent/ntm-work/vp-{s}-{x}':e for s in sc for x in ps}; p.update({f'/home/agent/ntm-work/vp-{s}':e for s in sc}); d={'numStartups':1,'theme':'dark','hasCompletedOnboarding':True,'hasSeenTasksHint':True,'autoUpdates':False,'bypassPermissionsModeAccepted':True,'projects':p}; open('/home/agent/.claude.json','w').write(json.dumps(d))"
+RUN python3 -c "import json; sc=['00-microscope','01-prompt-chaining','02-routing','03-sectioning','04-voting','05-orchestrator-workers','06-evaluator-optimizer','07-agent-loop']; ps=['foreman','implementer','evaluator','treehugger']; e={'hasTrustDialogAccepted':True,'allowedTools':[],'mcpContextUris':[],'mcpServers':{},'enabledMcpjsonServers':[],'disabledMcpjsonServers':[],'projectOnboardingSeenCount':1}; p={f'/home/agent/ntm-work/vp-{s}-{x}':e for s in sc for x in ps}; p.update({f'/home/agent/ntm-work/vp-{s}':e for s in sc}); d={'numStartups':1,'theme':'dark','hasCompletedOnboarding':True,'hasSeenTasksHint':True,'autoUpdates':False,'bypassPermissionsModeAccepted':True,'projects':p}; open('/home/agent/.claude.json','w').write(json.dumps(d))"
 
 # Register gc's required custom issue types in bd's types.custom config so
 # gc sling / gc session / gc converge accept beads of those types. Without
