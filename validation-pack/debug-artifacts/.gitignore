@@ -1,0 +1,5 @@
+# Failure artifacts written by run-scenario.sh on test failure.
+# Don't commit captured session logs / bd state / tmux scrollback.
+*
+!.gitignore
+!README.md

@@ -80,6 +80,54 @@ for kind, entries in fx.items():
     echo "===== end bead state dump =====" >&2
 fi
 
+# On any failure, capture full diagnostic state to the host-visible debug
+# directory before the container exits. The container is destroyed with --rm,
+# so anything not persisted here is lost. Failed-test debugging needs at
+# minimum: agent session log (jsonl), tmux pane scrollback (if any), bd
+# JSONL + dolt export, the predicate fixture, and the container logs. The
+# host mounts /home/agent/debug-artifacts via compose; on success we skip
+# the capture (test passed; no need for forensics).
+if [[ "${DRIVER_RC}" -ne 0 || "${VERIFIER_RC}" -ne 0 ]]; then
+    artifacts_dir="/home/agent/debug-artifacts/${SCENARIO_ID}-$(date -u +%Y%m%dT%H%M%SZ)"
+    echo "===== run-scenario: FAILURE — capturing debug artifacts to ${artifacts_dir} =====" >&2
+    mkdir -p "${artifacts_dir}"
+
+    # Agent session logs (Claude Code stores per-project per-session JSONL).
+    if [[ -d "${HOME}/.claude/projects" ]]; then
+        cp -r "${HOME}/.claude/projects" "${artifacts_dir}/claude-projects" 2>/dev/null || true
+    fi
+
+    # tmux pane scrollback for every active session. 10000-line scrollback;
+    # captures the full agent dialogue under either gc or ntm shim.
+    if command -v tmux >/dev/null 2>&1; then
+        mkdir -p "${artifacts_dir}/tmux"
+        tmux list-sessions -F '#{session_name}' 2>/dev/null | while read -r s; do
+            tmux capture-pane -t "${s}" -p -S -10000 > "${artifacts_dir}/tmux/${s}.txt" 2>/dev/null || true
+        done
+    fi
+
+    # bd substrate state — both the JSONL on disk and a fresh export.
+    if [[ -d "${PACK_ROOT}/.beads" ]]; then
+        mkdir -p "${artifacts_dir}/beads"
+        cp "${PACK_ROOT}/.beads/issues.jsonl" "${artifacts_dir}/beads/issues.jsonl" 2>/dev/null || true
+        bd export 2>/dev/null > "${artifacts_dir}/beads/bd-export.jsonl" || true
+    fi
+
+    # The fixture predicate the verifier was asserting against.
+    cp "${PACK_ROOT}/fixtures/${SCENARIO_ID}-expected.json" "${artifacts_dir}/" 2>/dev/null || true
+
+    # Exit codes + the bead-dump rendered earlier (re-render to a file).
+    {
+        echo "scenario: ${SCENARIO_ID}"
+        echo "driver_rc: ${DRIVER_RC}"
+        echo "verifier_rc: ${VERIFIER_RC}"
+        echo "captured_at: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    } > "${artifacts_dir}/summary.txt"
+
+    chmod -R a+rX "${artifacts_dir}" 2>/dev/null || true
+    echo "===== artifact capture complete =====" >&2
+fi
+
 if [[ "${DRIVER_RC}" -ne 0 ]]; then
     echo "run-scenario: driver exited ${DRIVER_RC}; verifier exited ${VERIFIER_RC}" >&2
     exit "${DRIVER_RC}"

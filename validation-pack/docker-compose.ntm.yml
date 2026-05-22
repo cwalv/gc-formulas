@@ -16,3 +16,5 @@ services:
     volumes:
       # Same OAuth bind-mount path as docker-compose.yml (see comments there).
       - ${CLAUDE_CREDS_PATH:-/home/cwa/.claude/.credentials.json}:/mnt/host-claude/credentials.json:ro
+      # Debug artifacts on failure (see docker-compose.yml for the rationale).
+      - ${DEBUG_ARTIFACTS:-./debug-artifacts}:/home/agent/debug-artifacts

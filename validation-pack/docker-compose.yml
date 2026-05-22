@@ -21,6 +21,11 @@ services:
       # the target). We use an absolute path with a CLAUDE_CREDS_PATH env-var
       # override for portability.
       - ${CLAUDE_CREDS_PATH:-/home/cwa/.claude/.credentials.json}:/mnt/host-claude/credentials.json:ro
+      # Debug artifacts: on scenario failure run-scenario.sh writes session
+      # logs, tmux scrollback, bd JSONL, fixture, and a summary into this dir
+      # so they survive --rm. Override the host path with DEBUG_ARTIFACTS to
+      # point elsewhere (defaults to ./debug-artifacts/ next to compose file).
+      - ${DEBUG_ARTIFACTS:-./debug-artifacts}:/home/agent/debug-artifacts
     # To vary city config per iteration without rebuilding image layers, add
     # the following entry to the volumes list above and provide the override file:
     # - ./city.override.toml:/home/agent/validation-pack/city.toml:ro
