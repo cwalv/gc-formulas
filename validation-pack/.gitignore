@@ -6,3 +6,6 @@ fixtures/[0-9]*-expected.json
 
 # ntm binary pre-built via assets/build-ntm.sh — not committed (size, platform-specific)
 assets/ntm
+
+# Python bytecode from the verifier (verify_bead_state.py) — local-only.
+scripts/__pycache__/
