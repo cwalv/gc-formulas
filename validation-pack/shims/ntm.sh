@@ -11,13 +11,12 @@
 #   ntm manages tmux sessions; each pane is an AI agent. Sessions are created
 #   with `ntm spawn`, prompts are pushed via `ntm send`. ntm has no concept
 #   equivalent to gc's controller/session-pool — work routing is accomplished
-#   by sending explicit prompts to panes. The routing key (gc.routed_to) is
-#   shared across shims — namespace is just a string. Scenario drivers write
-#   gc.routed_to=validation/<persona> and both gc and ntm personas query that
-#   same key (see shim_spawn).
+#   by sending explicit prompts to panes. Routing is done via bd's --assignee
+#   flag: scenario drivers write `bd update --assignee=validation/<persona>`
+#   and both gc and ntm personas query the pool via `bd ready --assignee=...`.
 #
 # Routing mapping:
-#   gc shim:  gc session new → pool subscribes via gc hook / gc.routed_to
+#   gc shim:  gc session new → pool subscribes via gc hook / bd ready --assignee
 #   ntm shim: ntm spawn session --persona=<persona> → ntm send explicit bead prompt
 #   The ntm persona carries the system prompt but not the pool-queue loop;
 #   the scenario driver (via shim_spawn) sends the looping task explicitly.

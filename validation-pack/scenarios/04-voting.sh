@@ -125,17 +125,16 @@ BD_STEP_TALLY="$(_parse_step step-tally)"
 echo "[${SCENARIO_ID}] step-voter-1=${BD_STEP_VOTER_1} step-voter-2=${BD_STEP_VOTER_2} step-voter-3=${BD_STEP_VOTER_3} step-tally=${BD_STEP_TALLY}"
 
 # ---------------------------------------------------------------------------
-# 3. Route all 4 step beads to the implementer pool (direct metadata write)
+# 3. Route all 4 step beads to the implementer pool (direct assignee write)
 # ---------------------------------------------------------------------------
-# All 4 beads get gc.routed_to=validation/implementer. The tally bead's blocker
+# All 4 beads get assignee=validation/implementer. The tally bead's blocker
 # deps mean it won't appear in `bd ready` until all three voters close — routing
 # it now is harmless and ensures the same worker persona picks it up once ready.
-# Namespace matches the gc shim's convention: gc.routed_to=validation/<persona>.
 
 echo "[${SCENARIO_ID}] routing beads to implementer..."
 
 for STEP_ID in "${BD_STEP_VOTER_1}" "${BD_STEP_VOTER_2}" "${BD_STEP_VOTER_3}" "${BD_STEP_TALLY}"; do
-    bd update "${STEP_ID}" --set-metadata gc.routed_to=validation/implementer
+    bd update "${STEP_ID}" --assignee=validation/implementer
     echo "[${SCENARIO_ID}]   routed ${STEP_ID}"
 done
 
@@ -256,7 +255,7 @@ bd list --status=closed --json 2>/dev/null \
     | jq -r "[.[] | select(.id==\"${BD_STEP_VOTER_1}\" or .id==\"${BD_STEP_VOTER_2}\" or .id==\"${BD_STEP_VOTER_3}\" or .id==\"${BD_STEP_TALLY}\")] | .[] | [.id, .status, .close_reason, .title] | @tsv" \
     2>&1 || true
 echo "--- bd ready (implementer pool) ---" >&2
-bd ready --metadata-field gc.routed_to=validation/implementer 2>&1 || true
+bd ready --include-ephemeral --assignee=validation/implementer --json --limit 1 2>&1 || true
 echo "--- gc session list ---" >&2
 gc session list --city "${PACK_ROOT}" 2>&1 || true
 exit 1

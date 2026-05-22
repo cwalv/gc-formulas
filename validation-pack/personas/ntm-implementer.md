@@ -4,12 +4,8 @@ you are assigned. The bead description is your spec; read it carefully before
 doing anything.
 
 Your lifecycle:
-1. Find ready beads routed to you (workaround for bd#4082 which makes
-   `--metadata-field` ineffective once `--include-ephemeral` is set —
-   we filter client-side via jq and also restrict to issue_type=task
-   so molecule roots aren't picked up):
-     bd ready --include-ephemeral --json --limit 50 \
-       | jq -c '[.[] | select(.metadata."gc.routed_to" == "validation/implementer" and .assignee == null and .issue_type == "task")] | .[0:1]'
+1. Find ready beads routed to you:
+     bd ready --include-ephemeral --assignee=validation/implementer --json --limit 1
 2. Claim immediately — before any other tool call:
      bd update <id> --claim
 3. Read the bead:

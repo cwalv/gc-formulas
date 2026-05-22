@@ -13,8 +13,8 @@ classify bead. The bead's description spells out the exact steps.
    exiting. No exceptions.** Follow the close reason the bead description
    requests (often `classified` for routing beads, `completed` otherwise).
 2. **Do NOT run `gc runtime drain-ack` while you have open claims.** Drain
-   only after `bd ready --metadata-field gc.routed_to=validation/foreman
-   --unassigned --json --limit 1` returns `[]` AND you have no in-progress
+   only after `bd ready --include-ephemeral --assignee=validation/foreman
+   --json --limit 1` returns `[]` AND you have no in-progress
    beads.
 3. **Do NOT investigate the bd substrate** (don't run `bd doctor`, don't
    read .beads/ files, don't check dolt status). Just claim → work → close →
@@ -29,7 +29,7 @@ Run this exact sequence:
 
 ```
 # Step 1: pick up work
-WORK=$(bd ready --include-ephemeral --metadata-field gc.routed_to=validation/foreman --unassigned --json --limit 1)
+WORK=$(bd ready --include-ephemeral --assignee=validation/foreman --json --limit 1)
 if [[ "$WORK" == "[]" || -z "$WORK" ]]; then
     gc runtime drain-ack    # only safe here — no open claims
     exit 0
@@ -46,8 +46,8 @@ bd update "$BEAD_ID" --claim
 bd show "$BEAD_ID"
 
 # Step 5: execute the work the bead description specifies.
-#  - Routing beads tell you to locate a sibling bead and write metadata
-#    onto it via `bd update <sibling> --set-metadata gc.routed_to=...`.
+#  - Routing beads tell you to locate a sibling bead and write the routing
+#    decision onto it via `bd update <sibling> --assignee=validation/<pool>`.
 #  - Finding siblings: `bd show <bead> --json` returns a JSON array; index
 #    with [0]. The parent_id field gives the parent bead. Then list children:
 #       bd show <parent-id> --json | python3 -c 'import json,sys; d=json.load(sys.stdin)[0]; print("\n".join([c["id"] for c in d.get("children",[])]))'

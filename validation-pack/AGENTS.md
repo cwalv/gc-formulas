@@ -23,7 +23,7 @@ A bead's full state history is queryable; predicates in `verify_bead_state.py` a
 
 ## Dispatch and metadata
 
-- Persona routing rides on the `gc.routed_to` metadata key. **Always set it via `gc sling <target> <bead-id>`** — that's the public interface. Don't write `gc.routed_to` directly except in atomicity-sensitive paths (e.g., rejection transitions), and even then justify it.
+- Persona routing uses the `--assignee` flag on `bd update`. **Prefer `bd update <bead-id> --assignee=validation/<pool>`** to set pool routing. Don't write `gc.routed_to` metadata directly; the assignee slot is the canonical routing field.
 - Mail (`gc mail`) is a UX layer for humans on top of beads. Agent-to-agent dispatch goes through bd routing, not mail. Treat mail as out-of-band for in-container scenarios.
 
 ## Formulas

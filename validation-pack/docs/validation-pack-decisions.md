@@ -303,3 +303,19 @@ This is a separate work item; capturing here so it's not lost.
 | 07 agent-loop | PASS | **PASS** | single agent, single bd writer — no concurrency, the shim's correctness is end-to-end demonstrated |
 
 Read: gc shim is 7-for-7 at the workflow-pattern layer. ntm shim is 1-for-7 at the same layer; the other six exhibit substrate-level breakage rather than shim-level breakage. Root cause is consistently "concurrent bd processes from N tmux panes race against each other and against the driver's own bd writes; bd v1.0.3 only handles the single-writer case correctly."
+
+## Decision: convert routing from `gc.routed_to` metadata to `bd update --assignee`
+
+**Context:** `bd ready --include-ephemeral --metadata-field gc.routed_to=...` ignores the metadata predicate (bd#4082). The workaround was a jq client-side filter over `--json --limit 50`. gascity sidesteps this by using `bd ready --assignee=<pool-name>`, which works correctly. The assignee slot is repurposed as a free-form pool name (`validation/foreman`, `validation/implementer`, etc.).
+
+**What changed:**
+- Scenario drivers: `bd update <bead> --set-metadata gc.routed_to=validation/<pool>` → `bd update <bead> --assignee=validation/<pool>`.
+- Personas (gc and ntm variants): work-loop poll changed from the jq-workaround form to `bd ready --include-ephemeral --assignee=validation/<pool> --json --limit 1`. `--unassigned` removed (it filters to assignee=null, opposite of what we want; unclaimed pool beads have assignee=<pool-name>, not null).
+- `verify_bead_state.py`: added `assignee_match` predicate kind. Schema: `[{"bead_id": "...", "value": "..."}]`. Asserts `bd show <bead_id>` returns `assignee == value`. `metadata_match` retained for non-routing metadata assertions.
+- Scenario 02 fixture: changed from `metadata_match` (key: `gc.routed_to`) to `assignee_match` (value: `validation/implementer`).
+- Formula step descriptions (`routing.formula.toml`, `evaluator-optimizer.formula.toml`): example commands updated to `--assignee`.
+- `AGENTS.md`, `shims/ntm.sh` header comment, `.ntm/personas.toml` descriptions: updated to reference `--assignee` convention.
+
+**Why `--unassigned` was removed from pool polls:** `bd update --claim` overwrites the assignee from the pool name to the session name. Since `bd ready` returns only open (not in_progress) beads, claimed beads naturally drop off the query without any `--unassigned` filter. Adding `--unassigned` would filter to assignee=null, excluding pool-assigned but unclaimed beads entirely.
+
+**Historical references to `gc.routed_to` left intact:** prior decisions sections (bd#4082 description, jq-workaround history, ntm concurrency analysis) are preserved as-is — they are accurate historical record of how we got here.

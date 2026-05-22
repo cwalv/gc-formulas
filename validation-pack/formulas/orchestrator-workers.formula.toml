@@ -28,7 +28,7 @@ Routing notes:
     using a direct metadata write (not gc sling).
   - step-implement-1, step-implement-2, and step-land are hard-coded in their bead
     descriptions to direct the agent to self-identify as the correct persona. The
-    driver writes gc.routed_to=validation/<persona> onto each bead explicitly — the
+    driver writes --assignee=validation/<persona> onto each bead explicitly — the
     descriptions just reinforce persona expectations.
   - Per-step formula-level routing fields are not exposed by the formula schema;
     persona assignment beyond the root {{assignee}} var is handled by the driver.

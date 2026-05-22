@@ -11,10 +11,10 @@ after each implementer round, with deeper feedback each time.
 ## Critical rules
 
 1. **NEVER close and reopen a bead.** Closing is terminal. To iterate, use
-   `bd update <id> --status=open --set-metadata gc.routed_to=validation/implementer`.
+   `bd update <id> --status=open --assignee=validation/implementer`.
 2. **Do NOT exit while you have open claims** or while
-   `bd ready --include-ephemeral --metadata-field gc.routed_to=validation/evaluator
-   --unassigned --json --limit 1` could still return work.
+   `bd ready --include-ephemeral --assignee=validation/evaluator
+   --json --limit 1` could still return work.
 3. **Feedback in `iterate:` notes must be specific** enough for the implementer
    to act on (cite missing content, syntax, structure — not vague).
 
@@ -22,12 +22,7 @@ after each implementer round, with deeper feedback each time.
 
 ```
 # Step 1: pick up work
-# Workaround for bd#4082: `bd ready --include-ephemeral --metadata-field` ignores
-# the metadata predicate. Filter client-side via jq; also require issue_type=task
-# so molecule roots are skipped.
-WORK=$(bd ready --include-ephemeral --json --limit 50 \
-    | jq -c --arg pool "validation/evaluator" \
-        '[.[] | select(.metadata."gc.routed_to" == $pool and .assignee == null and .issue_type == "task")] | .[0:1]')
+WORK=$(bd ready --include-ephemeral --assignee=validation/evaluator --json --limit 1)
 if [[ "$WORK" == "[]" || -z "$WORK" ]]; then
     exit 0    # queue empty, no open claims — exit cleanly
 fi
@@ -58,13 +53,13 @@ bd show "$BEAD_ID"
 #   - **Round 1 (iteration count == 0) — force iterate**:
 #       bd update "$BEAD_ID" --status=open \
 #           --notes "iterate: forced-round-1: add a one-line rationale below the haiku explaining your color choice" \
-#           --set-metadata gc.routed_to=validation/implementer
+#           --assignee=validation/implementer
 #   - **Approve** (iteration count >= 1 AND draft meets requirements):
 #       bd close "$BEAD_ID" --reason="approved"
 #   - **Iterate** (iteration count >= 1 AND iteration count < 3, draft needs work):
 #       bd update "$BEAD_ID" --status=open \
 #           --notes "iterate: <specific actionable feedback>" \
-#           --set-metadata gc.routed_to=validation/implementer
+#           --assignee=validation/implementer
 #   - **Max iterations reached** (iteration count >= 3, or you're on round 4+):
 #       bd close "$BEAD_ID" --reason="max-iterations-reached"
 

@@ -17,8 +17,8 @@ classify bead. The bead's description spells out the exact steps.
    exiting. No exceptions.** Follow the close reason the bead description
    requests (often `classified` for routing beads, `completed` otherwise).
 2. **Do NOT exit while you have open claims.** Exit only after
-   `bd ready --metadata-field gc.routed_to=validation/foreman
-   --unassigned --json --limit 1` returns `[]` AND you have no in-progress
+   `bd ready --include-ephemeral --assignee=validation/foreman
+   --json --limit 1` returns `[]` AND you have no in-progress
    beads.
 3. **Do NOT investigate the bd substrate** (don't run `bd doctor`, don't
    read .beads/ files, don't check dolt status). Just claim → work → close →
@@ -33,13 +33,7 @@ Run this exact sequence:
 
 ```
 # Step 1: pick up work
-# Workaround for bd#4082: `bd ready --include-ephemeral --metadata-field` ignores
-# the metadata predicate, returning ALL ephemeral wisps including the molecule
-# root. Apply the filter client-side via jq, and also require issue_type=task
-# so the molecule root (which has no description-driven work for us) is skipped.
-WORK=$(bd ready --include-ephemeral --json --limit 50 \
-    | jq -c --arg pool "validation/foreman" \
-        '[.[] | select(.metadata."gc.routed_to" == $pool and .assignee == null and .issue_type == "task")] | .[0:1]')
+WORK=$(bd ready --include-ephemeral --assignee=validation/foreman --json --limit 1)
 if [[ "$WORK" == "[]" || -z "$WORK" ]]; then
     exit 0    # queue empty, no open claims — exit cleanly
 fi
@@ -55,8 +49,8 @@ bd update "$BEAD_ID" --claim
 bd show "$BEAD_ID"
 
 # Step 5: execute the work the bead description specifies.
-#  - Routing beads tell you to locate a sibling bead and write metadata
-#    onto it via `bd update <sibling> --set-metadata gc.routed_to=...`.
+#  - Routing beads tell you to locate a sibling bead and write the routing
+#    decision onto it via `bd update <sibling> --assignee=validation/<pool>`.
 #  - Finding siblings: `bd show <bead> --json` returns a JSON array; index
 #    with [0]. The parent_id field gives the parent bead. Then list children:
 #       bd show <parent-id> --json | python3 -c 'import json,sys; d=json.load(sys.stdin)[0]; print("\n".join([c["id"] for c in d.get("children",[])]))'

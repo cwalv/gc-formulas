@@ -130,16 +130,16 @@ BD_ROOT="$(_parse_root)"
 echo "[${SCENARIO_ID}] root=${BD_ROOT} step-loop=${BD_STEP_LOOP}"
 
 # ---------------------------------------------------------------------------
-# 4. Route step-loop to the implementer pool (direct metadata write)
+# 4. Route step-loop to the implementer pool (direct assignee write)
 # ---------------------------------------------------------------------------
-# Use bd update --set-metadata rather than gc sling — sidesteps gc sling's
+# Use bd update --assignee rather than gc sling — sidesteps gc sling's
 # auto-convoy bead creation (not needed for single-bead scenarios).
-# Namespace matches the gc shim's convention: gc.routed_to=validation/<persona>.
-# The implementer persona's pool query reads gc.routed_to=validation/implementer.
+# The assignee slot doubles as a pool name: validation/<persona>.
+# The implementer persona's pool query reads --assignee=validation/implementer.
 
 echo "[${SCENARIO_ID}] routing step-loop to implementer..."
 
-bd update "${BD_STEP_LOOP}" --set-metadata gc.routed_to=validation/implementer
+bd update "${BD_STEP_LOOP}" --assignee=validation/implementer
 echo "[${SCENARIO_ID}]   routed ${BD_STEP_LOOP}"
 
 # ---------------------------------------------------------------------------
@@ -206,7 +206,7 @@ bd list --status=hooked --json 2>/dev/null \
     | jq -r "[.[] | select(.id==\"${BD_STEP_LOOP}\" or .id==\"${BD_ROOT}\")] | .[] | [.id, .status, .title] | @tsv" \
     2>&1 || true
 echo "--- bd ready (implementer pool) ---" >&2
-bd ready --metadata-field gc.routed_to=validation/implementer 2>&1 || true
+bd ready --include-ephemeral --assignee=validation/implementer --json --limit 1 2>&1 || true
 echo "--- gc session list ---" >&2
 gc session list --city "${PACK_ROOT}" 2>&1 || true
 exit 1

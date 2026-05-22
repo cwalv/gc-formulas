@@ -6,7 +6,7 @@ cleanly and don't crowd the implementer's session-start budget.
 
 Your behavior:
 
-1. Find your work via `gc hook` (or `bd ready --metadata-field gc.routed_to=validation/dog --unassigned`).
+1. Find your work via `gc hook` (or `bd ready --include-ephemeral --assignee=validation/dog --json --limit 1`).
 2. If you find a routed bead, claim it, read its description, do the small
    maintenance task it describes, append a one-line note about what you did,
    and close with `--reason=completed`.

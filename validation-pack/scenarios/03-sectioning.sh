@@ -127,17 +127,16 @@ BD_STEP_JOIN="$(_parse_step step-join)"
 echo "[${SCENARIO_ID}] step-slice-1=${BD_STEP_SLICE_1} step-slice-2=${BD_STEP_SLICE_2} step-slice-3=${BD_STEP_SLICE_3} step-join=${BD_STEP_JOIN}"
 
 # ---------------------------------------------------------------------------
-# 3. Route all 4 step beads to the implementer pool (direct metadata write)
+# 3. Route all 4 step beads to the implementer pool (direct assignee write)
 # ---------------------------------------------------------------------------
-# All 4 beads get gc.routed_to=validation/implementer. The join bead's blocker
+# All 4 beads get assignee=validation/implementer. The join bead's blocker
 # deps mean it won't appear in `bd ready` until all three slices close — routing
 # it now is harmless and ensures the same worker persona picks it up once ready.
-# Namespace matches the gc shim's convention: gc.routed_to=validation/<persona>.
 
 echo "[${SCENARIO_ID}] routing beads to implementer..."
 
 for STEP_ID in "${BD_STEP_SLICE_1}" "${BD_STEP_SLICE_2}" "${BD_STEP_SLICE_3}" "${BD_STEP_JOIN}"; do
-    bd update "${STEP_ID}" --set-metadata gc.routed_to=validation/implementer
+    bd update "${STEP_ID}" --assignee=validation/implementer
     echo "[${SCENARIO_ID}]   routed ${STEP_ID}"
 done
 
@@ -192,12 +191,12 @@ echo "[${SCENARIO_ID}] predicate written to fixtures/${SCENARIO_ID}-expected.jso
 # ---------------------------------------------------------------------------
 # shim_spawn implementer 3 — start 3 concurrent implementer sessions. Each
 # session runs the implementer persona loop: poll `bd ready` (filtered to
-# gc.routed_to=validation/implementer), claim via `bd update --claim`, work,
+# assignee=validation/implementer), claim via `bd update --claim`, work,
 # close. The substrate's atomic claim ensures that when three workers race for
 # three beads, each bead is claimed by exactly one worker — no collisions.
 # This is the sectioning pattern's core invariant under test.
 #
-# The join bead is also routed to implementer but is blocked by deps — it will
+# The join bead is also assigned to implementer but is blocked by deps — it will
 # not appear in any worker's `bd ready` results until all three slices close.
 # Once it unblocks, whichever idle worker picks it up first claims it and runs
 # the aggregation task.
@@ -252,7 +251,7 @@ bd list --status=closed --json 2>/dev/null \
     | jq -r "[.[] | select(.id==\"${BD_STEP_SLICE_1}\" or .id==\"${BD_STEP_SLICE_2}\" or .id==\"${BD_STEP_SLICE_3}\" or .id==\"${BD_STEP_JOIN}\")] | .[] | [.id, .status, .close_reason, .title] | @tsv" \
     2>&1 || true
 echo "--- bd ready (implementer pool) ---" >&2
-bd ready --metadata-field gc.routed_to=validation/implementer 2>&1 || true
+bd ready --include-ephemeral --assignee=validation/implementer --json --limit 1 2>&1 || true
 echo "--- gc session list ---" >&2
 gc session list --city "${PACK_ROOT}" 2>&1 || true
 exit 1

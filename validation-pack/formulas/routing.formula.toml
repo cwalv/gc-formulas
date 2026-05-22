@@ -6,15 +6,15 @@ in Anthropic's *Building Effective Agents*. A "router" agent (the foreman
 persona) reads an ambiguous work request and classifies it as either
 implementer-work (code change) or treehugger-work (review/landing), then
 routes a downstream execute bead to the appropriate persona via
-`bd update --set-metadata gc.routed_to=validation/<chosen>`.
+`bd update --assignee=validation/<chosen>`.
 
 Formula shape (design B — two beads, foreman + downstream):
   - step-classify: routed to {{assignee}} (default: foreman). The foreman
     reads the routing_input, decides the persona, writes the routing decision
-    onto step-execute via `bd update --set-metadata`, then closes
+    onto step-execute via `bd update --assignee`, then closes
     step-classify with reason `classified`.
   - step-execute: initially unrouted. Becomes the observable artefact the
-    verifier inspects: its gc.routed_to metadata must match expected_target
+    verifier inspects: its assignee field must match expected_target
     after step-classify closes. The driver does NOT await step-execute
     closing — routing decision is the predicate, not execution.
 
@@ -38,7 +38,7 @@ This formula is part of the validation pack that exercises each Anthropic
 workflow pattern end-to-end against a live bd substrate inside the
 validation container. The success predicate for this scenario (checked by
 verify_bead_state.py) is: step-classify is closed with reason `classified`;
-step-execute has gc.routed_to=validation/<expected_target>."""
+step-execute has assignee=validation/<expected_target>."""
 
 formula = "routing"
 version = 1
@@ -114,7 +114,7 @@ If the request is ambiguous, prefer `implementer-work`.
 
 5. Write the routing decision onto the execute bead:
    ```bash
-   bd update ${STEP_EXECUTE_ID} --set-metadata gc.routed_to=validation/<chosen>
+   bd update ${STEP_EXECUTE_ID} --assignee=validation/<chosen>
    ```
    Replace `<chosen>` with exactly `implementer` or `treehugger`.
    Also record your reasoning in the execute bead's notes:
@@ -128,7 +128,7 @@ If the request is ambiguous, prefer `implementer-work`.
    ```
 
 **Exit criteria:** This bead is `closed` with reason `classified`; the
-step-execute bead has `gc.routed_to=validation/<chosen>` in its metadata."""
+step-execute bead has `assignee=validation/<chosen>`."""
 
 [[steps]]
 id = "step-execute"
@@ -136,10 +136,10 @@ title = "Execute (awaiting routing decision from step-classify)"
 description = """
 This bead is the downstream work unit in the routing validation scenario.
 It is intentionally left unrouted when created. The step-classify bead
-(handled by the foreman) writes `gc.routed_to=validation/<persona>` onto
+(handled by the foreman) writes `--assignee=validation/<persona>` onto
 this bead as its routing decision.
 
-The scenario verifier checks this bead's `gc.routed_to` metadata after
+The scenario verifier checks this bead's `assignee` field after
 step-classify closes. No agent should claim or close this bead during the
 routing scenario — it is the observable artefact that proves routing happened.
 
@@ -148,5 +148,5 @@ metadata has been written, stop: do not claim it. Return it to open and
 await the routing decision from step-classify.
 
 **NOTE for treehugger running verify_bead_state.py:** this bead will NOT be
-closed at scenario end; the verifier asserts the `metadata_match` predicate
-on this bead's metadata, not its close state. See fixtures/02-routing-expected.json."""
+closed at scenario end; the verifier asserts the `assignee_match` predicate
+on this bead's assignee field, not its close state. See fixtures/02-routing-expected.json."""

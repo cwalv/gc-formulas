@@ -54,7 +54,7 @@ This bead is the single ping-pong unit for an evaluator-optimizer loop.
 
 ---
 
-## If you are the IMPLEMENTER (gc.routed_to = validation/implementer)
+## If you are the IMPLEMENTER (assignee = validation/implementer)
 
 1. Read this bead and all its notes: `bd show <id>`
 2. Claim it: `bd update <id> --claim`
@@ -67,7 +67,7 @@ This bead is the single ping-pong unit for an evaluator-optimizer loop.
    ```
 5. Hand off to the evaluator — flip back to open and reroute:
    ```bash
-   bd update <id> --status=open --notes="draft submitted" --set-metadata gc.routed_to=validation/evaluator
+   bd update <id> --status=open --notes="draft submitted" --assignee=validation/evaluator
    ```
 6. Run `gc runtime drain-ack`.
 
@@ -75,7 +75,7 @@ Do NOT close this bead. Only the evaluator closes it.
 
 ---
 
-## If you are the EVALUATOR (gc.routed_to = validation/evaluator)
+## If you are the EVALUATOR (assignee = validation/evaluator)
 
 1. Read this bead and all its notes: `bd show <id>`
 2. Claim it: `bd update <id> --claim`
@@ -92,7 +92,7 @@ Do NOT close this bead. Only the evaluator closes it.
 
    **Iterate** — the draft needs improvement AND iteration count < 3:
    ```bash
-   bd update <id> --status=open --notes="iterate: <specific actionable feedback>" --set-metadata gc.routed_to=validation/implementer
+   bd update <id> --status=open --notes="iterate: <specific actionable feedback>" --assignee=validation/implementer
    ```
 
    **Max iterations reached** — iteration count >= 3 (you are on round 4):

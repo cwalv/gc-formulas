@@ -104,12 +104,12 @@ echo "[${SCENARIO_ID}] root=${BD_ROOT} step-iterate=${BD_STEP_ITERATE}"
 # ---------------------------------------------------------------------------
 # 3. Route step-iterate to validation/implementer (initial routing)
 # ---------------------------------------------------------------------------
-# Direct metadata write — avoids gc sling auto-convoy creation (only useful
-# for parallel fan-out scenarios). Namespace: gc.routed_to=validation/<persona>
-# matches the gc shim's pool query convention.
+# Direct assignee write — avoids gc sling auto-convoy creation (only useful
+# for parallel fan-out scenarios). The assignee slot doubles as a pool name:
+# validation/<persona>.
 
 echo "[${SCENARIO_ID}] routing step-iterate to implementer..."
-bd update "${BD_STEP_ITERATE}" --set-metadata gc.routed_to=validation/implementer
+bd update "${BD_STEP_ITERATE}" --assignee=validation/implementer
 echo "[${SCENARIO_ID}]   routed ${BD_STEP_ITERATE} → validation/implementer"
 
 # ---------------------------------------------------------------------------
@@ -200,9 +200,9 @@ bd list --status=hooked --json 2>/dev/null \
     | jq -r "[.[] | select(.id==\"${BD_ROOT}\" or .id==\"${BD_STEP_ITERATE}\")] | .[] | [.id, .status, .title] | @tsv" \
     2>&1 || true
 echo "--- bd ready (implementer pool) ---" >&2
-bd ready --metadata-field gc.routed_to=validation/implementer 2>&1 || true
+bd ready --include-ephemeral --assignee=validation/implementer --json --limit 1 2>&1 || true
 echo "--- bd ready (evaluator pool) ---" >&2
-bd ready --metadata-field gc.routed_to=validation/evaluator 2>&1 || true
+bd ready --include-ephemeral --assignee=validation/evaluator --json --limit 1 2>&1 || true
 echo "--- gc session list ---" >&2
 gc session list --city "${PACK_ROOT}" 2>&1 || true
 echo "--- step-iterate notes ---" >&2

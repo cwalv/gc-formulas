@@ -38,6 +38,10 @@ Predicate schema (fixtures/<scenario>-expected.json):
         {"bead_id": "...", "key": "...", "value": "..."},
         ...
     ],
+    "assignee_match": [
+        {"bead_id": "...", "value": "<expected-assignee>"},
+        ...
+    ],
     "notes_contains": [
         {"bead_id": "...", "value": "<substring>"},
         ...
@@ -56,6 +60,8 @@ Predicate schema (fixtures/<scenario>-expected.json):
 - hooked: beads that must currently be in hooked (claimed) state.
 - metadata_match: each listed bead must have metadata[key] == value. Fetched
   on demand via `bd show <id> --json` (not eagerly with the list queries).
+- assignee_match: each listed bead's assignee field must equal value. Fetched
+  on demand via `bd show <id> --json`.
 - notes_contains: each listed bead's notes field must contain value as a
   substring. Fetched on demand via `bd show <id> --json`.
 
@@ -253,8 +259,8 @@ def assert_state(state: dict, predicate: dict, *, live: bool = True) -> bool:
     Returns True if all assertions pass; prints PASS/FAIL lines and returns
     False on first failure.
 
-    When live=True (normal mode), metadata_match and notes_contains predicates
-    call query_bead_metadata / query_bead_notes via subprocess.  When
+    When live=True (normal mode), metadata_match, assignee_match, and
+    notes_contains predicates call bd show via subprocess.  When
     live=False (self-test mode), they read from state["bead_details"] instead.
     """
     all_passed = True
@@ -369,6 +375,33 @@ def assert_state(state: dict, predicate: dict, *, live: bool = True) -> bool:
             else:
                 print(
                     f"PASS: bead {bead_id!r} metadata[{key!r}]={expected_value!r}"
+                )
+
+    # --- assignee_match ---
+    if "assignee_match" in predicate:
+        for exp in predicate["assignee_match"]:
+            bead_id = exp["bead_id"]
+            expected_value = exp["value"]
+            if not live:
+                details = state.get("bead_details", {}).get(bead_id, {})
+                actual_value = details.get("assignee")
+            else:
+                rows = _run_bd("show", bead_id)
+                if not rows:
+                    actual_value = None
+                else:
+                    item = rows[0] if isinstance(rows, list) else rows
+                    actual_value = item.get("assignee")
+            if actual_value != expected_value:
+                print(
+                    f"FAIL: bead {bead_id!r} assignee mismatch: "
+                    f"expected={expected_value!r} actual={actual_value!r}",
+                    file=sys.stderr,
+                )
+                all_passed = False
+            else:
+                print(
+                    f"PASS: bead {bead_id!r} assignee={expected_value!r}"
                 )
 
     # --- notes_contains ---

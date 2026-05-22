@@ -114,17 +114,17 @@ echo "[${SCENARIO_ID}] step-a=${BD_STEP_A} step-b=${BD_STEP_B} step-c=${BD_STEP_
 # ---------------------------------------------------------------------------
 # 3. Route step beads to the implementer pool (direct metadata write)
 # ---------------------------------------------------------------------------
-# Use bd update --set-metadata rather than gc sling — sidesteps gc sling's
+# Use bd update --assignee rather than gc sling — sidesteps gc sling's
 # auto-convoy bead creation (only useful for parallel-fan-out scenarios).
-# Namespace matches the gc shim's convention: gc.routed_to=validation/<persona>.
-# The implementer persona's pool query reads gc.routed_to=validation/implementer.
+# The assignee slot doubles as a pool name: validation/<persona>.
+# The implementer persona's pool query reads --assignee=validation/implementer.
 # Personas are orchestrator-specific (they reference gc hook, gc runtime
-# drain-ack, gc.* metadata) — an ntm shim would have its own persona + namespace.
+# drain-ack) — an ntm shim would have its own persona + namespace.
 
 echo "[${SCENARIO_ID}] routing beads to implementer..."
 
 for STEP_ID in "${BD_STEP_A}" "${BD_STEP_B}" "${BD_STEP_C}"; do
-    bd update "${STEP_ID}" --set-metadata gc.routed_to=validation/implementer
+    bd update "${STEP_ID}" --assignee=validation/implementer
     echo "[${SCENARIO_ID}]   routed ${STEP_ID}"
 done
 
@@ -201,7 +201,7 @@ bd list --status=hooked --json 2>/dev/null \
     | jq -r "[.[] | select(.id==\"${BD_STEP_A}\" or .id==\"${BD_STEP_B}\" or .id==\"${BD_STEP_C}\")] | .[] | [.id, .status, .title] | @tsv" \
     2>&1 || true
 echo "--- bd ready (implementer pool) ---" >&2
-bd ready --metadata-field gc.routed_to=validation/implementer 2>&1 || true
+bd ready --include-ephemeral --assignee=validation/implementer --json --limit 1 2>&1 || true
 echo "--- gc session list ---" >&2
 gc session list --city "${PACK_ROOT}" 2>&1 || true
 exit 1

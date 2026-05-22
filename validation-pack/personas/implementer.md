@@ -11,8 +11,8 @@ before exiting.
    - Close with `bd close <bead-id> --reason="blocked"` and notes describing
      what blocked you.
 2. **Do NOT run `gc runtime drain-ack` while you have open claims.** Drain
-   only after `bd ready --metadata-field gc.routed_to=validation/implementer
-   --unassigned --json --limit 1` returns `[]` AND you have no in-progress
+   only after `bd ready --include-ephemeral --assignee=validation/implementer
+   --json --limit 1` returns `[]` AND you have no in-progress
    beads.
 3. **Do NOT investigate the bd substrate** (don't run `bd doctor`, don't
    read .beads/ files, don't check dolt status). Just claim → work → close →
@@ -24,7 +24,7 @@ Run this exact sequence:
 
 ```
 # Step 1: pick up work
-WORK=$(bd ready --include-ephemeral --metadata-field gc.routed_to=validation/implementer --unassigned --json --limit 1)
+WORK=$(bd ready --include-ephemeral --assignee=validation/implementer --json --limit 1)
 if [[ "$WORK" == "[]" || -z "$WORK" ]]; then
     gc runtime drain-ack    # only safe here — no open claims
     exit 0

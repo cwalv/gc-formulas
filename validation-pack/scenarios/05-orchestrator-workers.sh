@@ -127,27 +127,27 @@ echo "[${SCENARIO_ID}] step-implement-2=${BD_STEP_IMPLEMENT_2}"
 echo "[${SCENARIO_ID}] step-land=${BD_STEP_LAND}"
 
 # ---------------------------------------------------------------------------
-# 3. Route beads to persona pools (direct metadata write)
+# 3. Route beads to persona pools (direct assignee write)
 # ---------------------------------------------------------------------------
-# Use bd update --set-metadata rather than gc sling — sidesteps gc sling's
+# Use bd update --assignee rather than gc sling — sidesteps gc sling's
 # auto-convoy bead creation (only useful for parallel-fan-out scenarios).
-# Namespace matches the gc shim's convention: gc.routed_to=validation/<persona>.
-# Each persona's pool query reads gc.routed_to=validation/<their-name>.
+# The assignee slot doubles as a pool name: validation/<persona>.
+# Each persona's pool query reads --assignee=validation/<their-name>.
 # step-implement-1 and step-implement-2 both route to the same implementer pool;
 # two implementer sessions will race to claim whichever becomes ready first.
 
 echo "[${SCENARIO_ID}] routing beads to persona pools..."
 
-bd update "${BD_STEP_ORCHESTRATE}" --set-metadata gc.routed_to=validation/foreman
+bd update "${BD_STEP_ORCHESTRATE}" --assignee=validation/foreman
 echo "[${SCENARIO_ID}]   routed ${BD_STEP_ORCHESTRATE} → validation/foreman"
 
-bd update "${BD_STEP_IMPLEMENT_1}" --set-metadata gc.routed_to=validation/implementer
+bd update "${BD_STEP_IMPLEMENT_1}" --assignee=validation/implementer
 echo "[${SCENARIO_ID}]   routed ${BD_STEP_IMPLEMENT_1} → validation/implementer"
 
-bd update "${BD_STEP_IMPLEMENT_2}" --set-metadata gc.routed_to=validation/implementer
+bd update "${BD_STEP_IMPLEMENT_2}" --assignee=validation/implementer
 echo "[${SCENARIO_ID}]   routed ${BD_STEP_IMPLEMENT_2} → validation/implementer"
 
-bd update "${BD_STEP_LAND}" --set-metadata gc.routed_to=validation/treehugger
+bd update "${BD_STEP_LAND}" --assignee=validation/treehugger
 echo "[${SCENARIO_ID}]   routed ${BD_STEP_LAND} → validation/treehugger"
 
 # ---------------------------------------------------------------------------
@@ -297,13 +297,13 @@ for d in items:
 " 2>&1 || true
 
     echo "--- bd ready (foreman pool) ---" >&2
-    bd ready --metadata-field gc.routed_to=validation/foreman 2>&1 || true
+    bd ready --include-ephemeral --assignee=validation/foreman --json --limit 1 2>&1 || true
 
     echo "--- bd ready (implementer pool) ---" >&2
-    bd ready --metadata-field gc.routed_to=validation/implementer 2>&1 || true
+    bd ready --include-ephemeral --assignee=validation/implementer --json --limit 1 2>&1 || true
 
     echo "--- bd ready (treehugger pool) ---" >&2
-    bd ready --metadata-field gc.routed_to=validation/treehugger 2>&1 || true
+    bd ready --include-ephemeral --assignee=validation/treehugger --json --limit 1 2>&1 || true
 
     echo "--- gc session list ---" >&2
     gc session list --city "${PACK_ROOT}" 2>&1 || true

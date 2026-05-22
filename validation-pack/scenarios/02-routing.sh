@@ -15,14 +15,13 @@
 #      step-execute is intentionally left unrouted at this point — the foreman
 #      writes its routing decision onto step-execute as part of the scenario.
 #   4. Write the expected predicate fixture BEFORE spawning the agent.
-#      NOTE: the fixture uses a new predicate kind `metadata_match` — see
+#      NOTE: the fixture uses the `assignee_match` predicate kind — see
 #      comment in the fixture section below.
 #   5. Spawn one foreman session via shim_spawn.
 #   6. Await step-classify closed via shim_await (600s ceiling — foreman only
 #      needs one LLM call to classify and route).
-#   7. Inspect step-execute's gc.routed_to metadata and assert it matches
-#      the expected target. (Done here rather than by verify_bead_state.py
-#      because metadata_match support is not yet in the verifier.)
+#   7. verify_bead_state.py asserts the assignee_match predicate on
+#      step-execute to confirm the foreman wrote the routing decision.
 #   8. Exit 0 on success; on failure/timeout dump diagnostics and exit 1.
 #
 # Shim model: sources shims/${SHIM:-gc}.sh for shim_spawn / shim_prime /
@@ -61,7 +60,7 @@ _dump_diagnostics() {
     bd show "${STEP_EXECUTE:-}" --json 2>/dev/null \
         | jq '{id, status, close_reason, metadata}' 2>&1 || true
     echo "--- bd ready (foreman pool) ---" >&2
-    bd ready --metadata-field gc.routed_to=validation/foreman 2>&1 || true
+    bd ready --include-ephemeral --assignee=validation/foreman --json --limit 1 2>&1 || true
     echo "--- gc session list ---" >&2
     gc session list --city "${PACK_ROOT}" 2>&1 || true
 }
@@ -104,7 +103,7 @@ git config --local user.email "agent@validation-pack.local" 2>/dev/null || true
 # any competent classifier routes this to implementer. Edge cases (ambiguous
 # scope, treehugger-work, review-only requests) are follow-on tests.
 #
-# expected_target=implementer tells the fixture what gc.routed_to we expect
+# expected_target=implementer tells the fixture what assignee we expect
 # the foreman to write on step-execute. The foreman never sees this value —
 # it's the verifier's reference only.
 ROUTING_INPUT="Add a new GraphQL endpoint for user search that filters by name and email"
@@ -143,13 +142,13 @@ echo "[${SCENARIO_ID}] step-classify=${STEP_CLASSIFY} step-execute=${STEP_EXECUT
 # ---------------------------------------------------------------------------
 # 3. Route step-classify to the foreman pool
 # ---------------------------------------------------------------------------
-# Direct metadata write (not gc sling) — sidesteps auto-convoy per shim
+# Direct assignee write (not gc sling) — sidesteps auto-convoy per shim
 # architecture (validation-pack-design.md § Shim architecture).
-# step-execute is deliberately left WITHOUT gc.routed_to at this point:
+# step-execute is deliberately left WITHOUT an assignee at this point:
 # the foreman's classify task writes it. That write IS the routing assertion.
 
 echo "[${SCENARIO_ID}] routing step-classify to foreman..."
-bd update "${STEP_CLASSIFY}" --set-metadata gc.routed_to=validation/foreman
+bd update "${STEP_CLASSIFY}" --assignee=validation/foreman
 echo "[${SCENARIO_ID}]   routed ${STEP_CLASSIFY} to validation/foreman"
 echo "[${SCENARIO_ID}]   step-execute (${STEP_EXECUTE}) left unrouted — foreman will write routing"
 
@@ -186,16 +185,16 @@ If the request is ambiguous, prefer \`implementer-work\`.
 3. Decide the classification: \`implementer\` or \`treehugger\`.
 4. **REQUIRED STEP — DO NOT SKIP**: write the routing decision onto the
    execute bead. Run this exact command, substituting your decision:
-       bd update ${STEP_EXECUTE} --set-metadata gc.routed_to=validation/<chosen>
+       bd update ${STEP_EXECUTE} --assignee=validation/<chosen>
        bd update ${STEP_EXECUTE} --append-notes "Routing decision: <chosen> — <one sentence rationale>"
-   After running, confirm the metadata write succeeded by reading it back:
+   After running, confirm the --assignee write succeeded by reading it back:
        bd show ${STEP_EXECUTE} --json
-   If \`metadata['gc.routed_to']\` is not what you wrote, retry.
+   If \`assignee\` is not what you wrote, retry.
 5. Only AFTER step 4 above is confirmed: close this bead:
        bd close ${STEP_CLASSIFY} --reason="classified"
 
 **Exit criteria**: ${STEP_CLASSIFY} is \`closed\` with reason \`classified\`;
-${STEP_EXECUTE} has \`gc.routed_to=validation/<chosen>\` in its metadata.
+${STEP_EXECUTE} has \`assignee=validation/<chosen>\` set via \`--assignee\`.
 EOF
 )"
 
@@ -208,27 +207,24 @@ echo "[${SCENARIO_ID}]   patched step-classify description with literal sibling 
 # verify_bead_state.py reads this file after the scenario.
 #
 # PREDICATE KINDS IN USE:
-#   - closed_in_order: supported by verify_bead_state.py today.
-#   - metadata_match: NEW predicate kind — NOT YET supported by
-#     verify_bead_state.py. Treehugger must add support for it before the
-#     verifier can assert the routing metadata. The inline metadata check at
-#     the end of this driver (step 7) covers the assertion for now; the
-#     fixture documents the intended predicate shape for the verifier.
+#   - closed_in_order: supported by verify_bead_state.py.
+#   - assignee_match: supported by verify_bead_state.py. Asserts the named
+#     bead's assignee field equals the given value. Used here to assert that
+#     the foreman wrote the routing decision onto step-execute.
 #
-# metadata_match schema (proposed):
-#   [{"bead_id": "...", "key": "...", "value": "..."}]
-#   Asserts that the named bead has the named metadata key set to exactly
-#   the named value at scenario end.
+# assignee_match schema:
+#   [{"bead_id": "...", "value": "..."}]
+#   Asserts that the named bead's assignee field equals the named value.
 
 mkdir -p "${PACK_ROOT}/fixtures"
 cat > "${PACK_ROOT}/fixtures/${SCENARIO_ID}-expected.json" <<EOF
 {
-  "_comment": "metadata_match is a NEW predicate kind — not yet supported by verify_bead_state.py. The scenario driver (step 7) performs this assertion inline. Treehugger must extend verify_bead_state.py to evaluate this predicate kind before relying on the verifier alone.",
+  "_comment": "assignee_match asserts the bead's assignee field equals the expected value. Supported by verify_bead_state.py.",
   "closed_in_order": [
     {"bead_id": "${STEP_CLASSIFY}", "reason": "classified"}
   ],
-  "metadata_match": [
-    {"bead_id": "${STEP_EXECUTE}", "key": "gc.routed_to", "value": "validation/${EXPECTED_TARGET}"}
+  "assignee_match": [
+    {"bead_id": "${STEP_EXECUTE}", "value": "validation/${EXPECTED_TARGET}"}
   ]
 }
 EOF
@@ -242,7 +238,7 @@ echo "[${SCENARIO_ID}] predicate written to fixtures/${SCENARIO_ID}-expected.jso
 # (defined in city.toml). The foreman persona (personas/foreman.md) describes
 # the foreman as a wisp-maker and observer; for this scenario it acts as the
 # classifier. The foreman needs one LLM call to: claim step-classify, read
-# the routing_input, decide the persona, write gc.routed_to onto step-execute,
+# the routing_input, decide the persona, write --assignee onto step-execute,
 # and close step-classify with reason=classified.
 #
 # NOTE: shim_spawn requires tmux in the container image (plus dolt + lsof for
@@ -279,12 +275,12 @@ echo "[${SCENARIO_ID}] step-classify closed"
 # ---------------------------------------------------------------------------
 # 7. Outcome
 # ---------------------------------------------------------------------------
-# Metadata assertion is delegated to verify_bead_state.py via the
-# metadata_match predicate (supported since this driver was written).
+# Assignee assertion is delegated to verify_bead_state.py via the
+# assignee_match predicate.
 # An earlier inline re-read here was racy: bd's JSONL import cycle could
-# show the metadata as <not set> immediately after the foreman wrote it,
+# show the assignee as <not set> immediately after the foreman wrote it,
 # even though the verifier (which runs a beat later via run-scenario.sh)
 # sees the value correctly. Trust the verifier as the single source of truth.
 
-echo "[${SCENARIO_ID}] routing scenario driver SUCCESS — verifier asserts metadata_match"
+echo "[${SCENARIO_ID}] routing scenario driver SUCCESS — verifier asserts assignee_match"
 exit 0
