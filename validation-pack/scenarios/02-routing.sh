@@ -267,6 +267,30 @@ scenario02_spawn() {
     checkpoint spawn
 }
 
+scenario02_fake_worker() {
+    # Deterministic stand-in — no LLM required.
+    # Fixture asserts:
+    #   closed_in_order: step-classify with reason=classified
+    #   assignee_match:  step-execute with value=validation/implementer
+    # Fake foreman: claim + close step-classify with reason=classified.
+    # Fake implementer: claim step-execute (already has assignee from route step).
+
+    echo "[${SCENARIO_ID}] fake-worker: claiming ${STEP_CLASSIFY}..."
+    bd update "${STEP_CLASSIFY}" --claim
+    echo "[${SCENARIO_ID}] fake-worker: writing routing decision onto ${STEP_EXECUTE}..."
+    bd update "${STEP_EXECUTE}" --assignee=validation/implementer
+    bd comment "${STEP_EXECUTE}" "Routing decision: implementer — request involves writing a new GraphQL endpoint (code change)"
+    echo "[${SCENARIO_ID}] fake-worker: closing ${STEP_CLASSIFY} with reason=classified..."
+    bd close "${STEP_CLASSIFY}" --reason classified
+
+    echo "[${SCENARIO_ID}] fake-worker: claiming ${STEP_EXECUTE}..."
+    bd update "${STEP_EXECUTE}" --claim
+    echo "[${SCENARIO_ID}] fake-worker: closing ${STEP_EXECUTE} with reason=completed..."
+    bd close "${STEP_EXECUTE}" --reason completed
+
+    echo "[${SCENARIO_ID}] fake-worker: done"
+}
+
 scenario02_close() {
     # Await step-classify close; dump diagnostics on failure.
     # Success criterion for routing is metadata-based, not step-execute-closed.
@@ -303,14 +327,21 @@ scenario02_close() {
 }
 
 main() {
-    scenario02_pour && scenario02_route && scenario02_spawn && scenario02_close
+    if [[ "${SCENARIO_MODE:-real}" == fake ]]; then
+        scenario02_pour
+        scenario02_route
+        scenario02_fake_worker      # replaces spawn + await
+        checkpoint verify
+    else
+        scenario02_pour && scenario02_route && scenario02_spawn && scenario02_close
+    fi
 }
 
 # ---------------------------------------------------------------------------
 # --step dispatcher
 # ---------------------------------------------------------------------------
 
-_VALID_STEPS="pour route spawn close"
+_VALID_STEPS="pour route spawn close fake_worker"
 
 if [[ $# -ge 1 && "$1" == "--step" ]]; then
     if [[ $# -lt 2 ]]; then
@@ -320,10 +351,11 @@ if [[ $# -ge 1 && "$1" == "--step" ]]; then
     fi
     _STEP="$2"
     case "${_STEP}" in
-        pour)   scenario02_pour ;;
-        route)  scenario02_pour && scenario02_route ;;
-        spawn)  scenario02_pour && scenario02_route && scenario02_spawn ;;
-        close)  scenario02_pour && scenario02_route && scenario02_spawn && scenario02_close ;;
+        pour)        scenario02_pour ;;
+        route)       scenario02_pour && scenario02_route ;;
+        spawn)       scenario02_pour && scenario02_route && scenario02_spawn ;;
+        close)       scenario02_pour && scenario02_route && scenario02_spawn && scenario02_close ;;
+        fake_worker) scenario02_pour && scenario02_route && scenario02_fake_worker ;;
         *)
             echo "[${SCENARIO_ID}] ERROR: unknown step '${_STEP}'" >&2
             echo "Valid steps: ${_VALID_STEPS}" >&2

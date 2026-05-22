@@ -185,6 +185,29 @@ scenario01_spawn() {
     checkpoint spawn
 }
 
+scenario01_fake_worker() {
+    # Deterministic stand-in for a passing implementer agent — no LLM required.
+    # Closes step-a, step-b, step-c in dependency order with reason=completed.
+    # The fixture asserts closed_in_order [step-a, step-b, step-c] with reason=completed.
+
+    echo "[${SCENARIO_ID}] fake-worker: claiming ${BD_STEP_A}..."
+    bd update "${BD_STEP_A}" --claim
+    echo "[${SCENARIO_ID}] fake-worker: closing ${BD_STEP_A}..."
+    bd close "${BD_STEP_A}" --reason completed
+
+    echo "[${SCENARIO_ID}] fake-worker: claiming ${BD_STEP_B}..."
+    bd update "${BD_STEP_B}" --claim
+    echo "[${SCENARIO_ID}] fake-worker: closing ${BD_STEP_B}..."
+    bd close "${BD_STEP_B}" --reason completed
+
+    echo "[${SCENARIO_ID}] fake-worker: claiming ${BD_STEP_C}..."
+    bd update "${BD_STEP_C}" --claim
+    echo "[${SCENARIO_ID}] fake-worker: closing ${BD_STEP_C}..."
+    bd close "${BD_STEP_C}" --reason completed
+
+    echo "[${SCENARIO_ID}] fake-worker: done"
+}
+
 scenario01_close() {
     # Await step-c (final step) close; dump diagnostics on failure.
     # Wait for step-c (the final step) to close. The substrate's dep enforcement
@@ -224,14 +247,21 @@ scenario01_close() {
 }
 
 main() {
-    scenario01_pour && scenario01_route && scenario01_spawn && scenario01_close
+    if [[ "${SCENARIO_MODE:-real}" == fake ]]; then
+        scenario01_pour
+        scenario01_route
+        scenario01_fake_worker      # replaces spawn + await
+        checkpoint verify
+    else
+        scenario01_pour && scenario01_route && scenario01_spawn && scenario01_close
+    fi
 }
 
 # ---------------------------------------------------------------------------
 # --step dispatcher
 # ---------------------------------------------------------------------------
 
-_VALID_STEPS="pour route spawn close"
+_VALID_STEPS="pour route spawn close fake_worker"
 
 if [[ $# -ge 1 && "$1" == "--step" ]]; then
     if [[ $# -lt 2 ]]; then
@@ -241,10 +271,11 @@ if [[ $# -ge 1 && "$1" == "--step" ]]; then
     fi
     _STEP="$2"
     case "${_STEP}" in
-        pour)   scenario01_pour ;;
-        route)  scenario01_pour && scenario01_route ;;
-        spawn)  scenario01_pour && scenario01_route && scenario01_spawn ;;
-        close)  scenario01_pour && scenario01_route && scenario01_spawn && scenario01_close ;;
+        pour)        scenario01_pour ;;
+        route)       scenario01_pour && scenario01_route ;;
+        spawn)       scenario01_pour && scenario01_route && scenario01_spawn ;;
+        close)       scenario01_pour && scenario01_route && scenario01_spawn && scenario01_close ;;
+        fake_worker) scenario01_pour && scenario01_route && scenario01_fake_worker ;;
         *)
             echo "[${SCENARIO_ID}] ERROR: unknown step '${_STEP}'" >&2
             echo "Valid steps: ${_VALID_STEPS}" >&2

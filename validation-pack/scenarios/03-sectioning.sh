@@ -230,6 +230,32 @@ scenario03_spawn_workers() {
     checkpoint spawn
 }
 
+scenario03_fake_workers() {
+    # Deterministic stand-in — no LLM required.
+    # Fixture asserts:
+    #   closed_unordered: slice-1, slice-2, slice-3 with reason=completed
+    #   closed_in_order:  step-join with reason=completed
+    # Close slices first (any order); join has blocker deps so close it last.
+
+    echo "[${SCENARIO_ID}] fake-workers: closing slice-1 (${BD_STEP_SLICE_1})..."
+    bd update "${BD_STEP_SLICE_1}" --claim
+    bd close "${BD_STEP_SLICE_1}" --reason completed
+
+    echo "[${SCENARIO_ID}] fake-workers: closing slice-2 (${BD_STEP_SLICE_2})..."
+    bd update "${BD_STEP_SLICE_2}" --claim
+    bd close "${BD_STEP_SLICE_2}" --reason completed
+
+    echo "[${SCENARIO_ID}] fake-workers: closing slice-3 (${BD_STEP_SLICE_3})..."
+    bd update "${BD_STEP_SLICE_3}" --claim
+    bd close "${BD_STEP_SLICE_3}" --reason completed
+
+    echo "[${SCENARIO_ID}] fake-workers: closing join (${BD_STEP_JOIN})..."
+    bd update "${BD_STEP_JOIN}" --claim
+    bd close "${BD_STEP_JOIN}" --reason completed
+
+    echo "[${SCENARIO_ID}] fake-workers: done"
+}
+
 scenario03_close() {
     # Await step-join close (gates on all 3 slices via substrate deps).
     # Wait for step-join to close. The substrate's dep enforcement guarantees that
@@ -275,14 +301,21 @@ scenario03_close() {
 }
 
 main() {
-    scenario03_pour && scenario03_route && scenario03_spawn_workers && scenario03_close
+    if [[ "${SCENARIO_MODE:-real}" == fake ]]; then
+        scenario03_pour
+        scenario03_route
+        scenario03_fake_workers     # replaces spawn + await
+        checkpoint verify
+    else
+        scenario03_pour && scenario03_route && scenario03_spawn_workers && scenario03_close
+    fi
 }
 
 # ---------------------------------------------------------------------------
 # --step dispatcher
 # ---------------------------------------------------------------------------
 
-_VALID_STEPS="pour route spawn_workers close"
+_VALID_STEPS="pour route spawn_workers close fake_workers"
 
 if [[ $# -ge 1 && "$1" == "--step" ]]; then
     if [[ $# -lt 2 ]]; then
@@ -296,6 +329,7 @@ if [[ $# -ge 1 && "$1" == "--step" ]]; then
         route)         scenario03_pour && scenario03_route ;;
         spawn_workers) scenario03_pour && scenario03_route && scenario03_spawn_workers ;;
         close)         scenario03_pour && scenario03_route && scenario03_spawn_workers && scenario03_close ;;
+        fake_workers)  scenario03_pour && scenario03_route && scenario03_fake_workers ;;
         *)
             echo "[${SCENARIO_ID}] ERROR: unknown step '${_STEP}'" >&2
             echo "Valid steps: ${_VALID_STEPS}" >&2

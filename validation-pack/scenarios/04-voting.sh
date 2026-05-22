@@ -215,6 +215,38 @@ scenario04_spawn_workers() {
     checkpoint spawn
 }
 
+scenario04_fake_workers() {
+    # Deterministic stand-in — no LLM required.
+    # Fixture asserts:
+    #   closed_unordered: voter-1, voter-2, voter-3 with reason=completed
+    #   closed_in_order:  step-tally with reason=tallied
+    #   comments_contain: step-tally must have a comment containing "4"
+    # Close voters first (any order); tally has blocker deps so close it last.
+    # Each voter posts their answer as a comment before closing.
+
+    echo "[${SCENARIO_ID}] fake-workers: voter-1 (${BD_STEP_VOTER_1})..."
+    bd update "${BD_STEP_VOTER_1}" --claim
+    bd comment "${BD_STEP_VOTER_1}" "4"
+    bd close "${BD_STEP_VOTER_1}" --reason completed
+
+    echo "[${SCENARIO_ID}] fake-workers: voter-2 (${BD_STEP_VOTER_2})..."
+    bd update "${BD_STEP_VOTER_2}" --claim
+    bd comment "${BD_STEP_VOTER_2}" "4"
+    bd close "${BD_STEP_VOTER_2}" --reason completed
+
+    echo "[${SCENARIO_ID}] fake-workers: voter-3 (${BD_STEP_VOTER_3})..."
+    bd update "${BD_STEP_VOTER_3}" --claim
+    bd comment "${BD_STEP_VOTER_3}" "4"
+    bd close "${BD_STEP_VOTER_3}" --reason completed
+
+    echo "[${SCENARIO_ID}] fake-workers: tally (${BD_STEP_TALLY})..."
+    bd update "${BD_STEP_TALLY}" --claim
+    bd comment "${BD_STEP_TALLY}" "Tally: majority answer is 4 (unanimous 3/3)"
+    bd close "${BD_STEP_TALLY}" --reason tallied
+
+    echo "[${SCENARIO_ID}] fake-workers: done"
+}
+
 scenario04_close() {
     # Await step-tally close (gates on all 3 voters via substrate deps).
     # Wait for step-tally to close. The substrate's dep enforcement guarantees that
@@ -259,14 +291,21 @@ scenario04_close() {
 }
 
 main() {
-    scenario04_pour && scenario04_route && scenario04_spawn_workers && scenario04_close
+    if [[ "${SCENARIO_MODE:-real}" == fake ]]; then
+        scenario04_pour
+        scenario04_route
+        scenario04_fake_workers     # replaces spawn + await
+        checkpoint verify
+    else
+        scenario04_pour && scenario04_route && scenario04_spawn_workers && scenario04_close
+    fi
 }
 
 # ---------------------------------------------------------------------------
 # --step dispatcher
 # ---------------------------------------------------------------------------
 
-_VALID_STEPS="pour route spawn_workers close"
+_VALID_STEPS="pour route spawn_workers close fake_workers"
 
 if [[ $# -ge 1 && "$1" == "--step" ]]; then
     if [[ $# -lt 2 ]]; then
@@ -280,6 +319,7 @@ if [[ $# -ge 1 && "$1" == "--step" ]]; then
         route)         scenario04_pour && scenario04_route ;;
         spawn_workers) scenario04_pour && scenario04_route && scenario04_spawn_workers ;;
         close)         scenario04_pour && scenario04_route && scenario04_spawn_workers && scenario04_close ;;
+        fake_workers)  scenario04_pour && scenario04_route && scenario04_fake_workers ;;
         *)
             echo "[${SCENARIO_ID}] ERROR: unknown step '${_STEP}'" >&2
             echo "Valid steps: ${_VALID_STEPS}" >&2

@@ -186,6 +186,33 @@ scenario06_spawn() {
     checkpoint spawn
 }
 
+scenario06_fake_worker() {
+    # Deterministic stand-in — no LLM required.
+    # Fixture asserts:
+    #   closed_in_order:  step-iterate with reason_one_of=[approved, max-iterations-reached]
+    #   comments_contain: step-iterate must have a comment containing "iterate: forced-round-1"
+    # Fake the ping-pong: implementer draft-1 → evaluator forced-round-1 iterate comment
+    # → implementer draft-2 → evaluator approves → close with reason=approved.
+
+    echo "[${SCENARIO_ID}] fake-worker: implementer claiming ${BD_STEP_ITERATE}..."
+    bd update "${BD_STEP_ITERATE}" --claim
+
+    echo "[${SCENARIO_ID}] fake-worker: implementer posting draft-1..."
+    bd comment "${BD_STEP_ITERATE}" "draft-1: Teal depths call softly / Shimmering hues of stillness / Ocean meets the sky"
+
+    echo "[${SCENARIO_ID}] fake-worker: evaluator posting forced-round-1 iterate marker..."
+    bd comment "${BD_STEP_ITERATE}" "iterate: forced-round-1: syllable count in line 2 needs review — revise and resubmit"
+
+    echo "[${SCENARIO_ID}] fake-worker: implementer posting draft-2 (revised)..."
+    bd comment "${BD_STEP_ITERATE}" "draft-2: Teal depths call softly / Cool hues shimmer in stillness / Sky meets the ocean"
+
+    echo "[${SCENARIO_ID}] fake-worker: evaluator approving and closing ${BD_STEP_ITERATE}..."
+    bd comment "${BD_STEP_ITERATE}" "approved: haiku satisfies 5-7-5 syllable constraint"
+    bd close "${BD_STEP_ITERATE}" --reason approved
+
+    echo "[${SCENARIO_ID}] fake-worker: done"
+}
+
 scenario06_close() {
     # Await terminal state via shim_await.
     # Wait for step-iterate to close (approved or max-iterations-reached).
@@ -227,14 +254,21 @@ scenario06_close() {
 }
 
 main() {
-    scenario06_pour && scenario06_route && scenario06_spawn && scenario06_close
+    if [[ "${SCENARIO_MODE:-real}" == fake ]]; then
+        scenario06_pour
+        scenario06_route
+        scenario06_fake_worker      # replaces spawn + await
+        checkpoint verify
+    else
+        scenario06_pour && scenario06_route && scenario06_spawn && scenario06_close
+    fi
 }
 
 # ---------------------------------------------------------------------------
 # --step dispatcher
 # ---------------------------------------------------------------------------
 
-_VALID_STEPS="pour route spawn close"
+_VALID_STEPS="pour route spawn close fake_worker"
 
 if [[ $# -ge 1 && "$1" == "--step" ]]; then
     if [[ $# -lt 2 ]]; then
@@ -244,10 +278,11 @@ if [[ $# -ge 1 && "$1" == "--step" ]]; then
     fi
     _STEP="$2"
     case "${_STEP}" in
-        pour)  scenario06_pour ;;
-        route) scenario06_pour && scenario06_route ;;
-        spawn) scenario06_pour && scenario06_route && scenario06_spawn ;;
-        close) scenario06_pour && scenario06_route && scenario06_spawn && scenario06_close ;;
+        pour)        scenario06_pour ;;
+        route)       scenario06_pour && scenario06_route ;;
+        spawn)       scenario06_pour && scenario06_route && scenario06_spawn ;;
+        close)       scenario06_pour && scenario06_route && scenario06_spawn && scenario06_close ;;
+        fake_worker) scenario06_pour && scenario06_route && scenario06_fake_worker ;;
         *)
             echo "[${SCENARIO_ID}] ERROR: unknown step '${_STEP}'" >&2
             echo "Valid steps: ${_VALID_STEPS}" >&2

@@ -298,6 +298,34 @@ scenario05_spawn_workers() {
     checkpoint spawn
 }
 
+scenario05_fake_workers() {
+    # Deterministic stand-in — no LLM required.
+    # Fixture asserts:
+    #   closed_in_order:  step-orchestrate(decomposed), step-land(landed)
+    #   closed_unordered: step-implement-1(completed), step-implement-2(completed)
+    # Order: foreman closes step-orchestrate → implement-1 and implement-2 unblock
+    # → close both → step-land unblocks → treehugger closes step-land.
+
+    echo "[${SCENARIO_ID}] fake-workers: foreman claiming ${BD_STEP_ORCHESTRATE}..."
+    bd update "${BD_STEP_ORCHESTRATE}" --claim
+    echo "[${SCENARIO_ID}] fake-workers: foreman closing ${BD_STEP_ORCHESTRATE} (decomposed)..."
+    bd close "${BD_STEP_ORCHESTRATE}" --reason decomposed
+
+    echo "[${SCENARIO_ID}] fake-workers: implementer closing ${BD_STEP_IMPLEMENT_1} (completed)..."
+    bd update "${BD_STEP_IMPLEMENT_1}" --claim
+    bd close "${BD_STEP_IMPLEMENT_1}" --reason completed
+
+    echo "[${SCENARIO_ID}] fake-workers: implementer closing ${BD_STEP_IMPLEMENT_2} (completed)..."
+    bd update "${BD_STEP_IMPLEMENT_2}" --claim
+    bd close "${BD_STEP_IMPLEMENT_2}" --reason completed
+
+    echo "[${SCENARIO_ID}] fake-workers: treehugger closing ${BD_STEP_LAND} (landed)..."
+    bd update "${BD_STEP_LAND}" --claim
+    bd close "${BD_STEP_LAND}" --reason landed
+
+    echo "[${SCENARIO_ID}] fake-workers: done"
+}
+
 scenario05_close() {
     # Await step-land close (the terminal success predicate).
     # Await step-land closing. The substrate's dep enforcement guarantees:
@@ -328,14 +356,21 @@ scenario05_close() {
 }
 
 main() {
-    scenario05_pour && scenario05_route && scenario05_spawn_workers && scenario05_close
+    if [[ "${SCENARIO_MODE:-real}" == fake ]]; then
+        scenario05_pour
+        scenario05_route
+        scenario05_fake_workers     # replaces spawn + await
+        checkpoint verify
+    else
+        scenario05_pour && scenario05_route && scenario05_spawn_workers && scenario05_close
+    fi
 }
 
 # ---------------------------------------------------------------------------
 # --step dispatcher
 # ---------------------------------------------------------------------------
 
-_VALID_STEPS="pour route spawn_workers close"
+_VALID_STEPS="pour route spawn_workers close fake_workers"
 
 if [[ $# -ge 1 && "$1" == "--step" ]]; then
     if [[ $# -lt 2 ]]; then
@@ -349,6 +384,7 @@ if [[ $# -ge 1 && "$1" == "--step" ]]; then
         route)         scenario05_pour && scenario05_route ;;
         spawn_workers) scenario05_pour && scenario05_route && scenario05_spawn_workers ;;
         close)         scenario05_pour && scenario05_route && scenario05_spawn_workers && scenario05_close ;;
+        fake_workers)  scenario05_pour && scenario05_route && scenario05_fake_workers ;;
         *)
             echo "[${SCENARIO_ID}] ERROR: unknown step '${_STEP}'" >&2
             echo "Valid steps: ${_VALID_STEPS}" >&2
