@@ -225,22 +225,22 @@ scenario04_fake_workers() {
     # Each voter posts their answer as a comment before closing.
 
     echo "[${SCENARIO_ID}] fake-workers: voter-1 (${BD_STEP_VOTER_1})..."
-    bd update "${BD_STEP_VOTER_1}" --claim
+    bd update "${BD_STEP_VOTER_1}" --status=in_progress
     bd comment "${BD_STEP_VOTER_1}" "4"
     bd close "${BD_STEP_VOTER_1}" --reason completed
 
     echo "[${SCENARIO_ID}] fake-workers: voter-2 (${BD_STEP_VOTER_2})..."
-    bd update "${BD_STEP_VOTER_2}" --claim
+    bd update "${BD_STEP_VOTER_2}" --status=in_progress
     bd comment "${BD_STEP_VOTER_2}" "4"
     bd close "${BD_STEP_VOTER_2}" --reason completed
 
     echo "[${SCENARIO_ID}] fake-workers: voter-3 (${BD_STEP_VOTER_3})..."
-    bd update "${BD_STEP_VOTER_3}" --claim
+    bd update "${BD_STEP_VOTER_3}" --status=in_progress
     bd comment "${BD_STEP_VOTER_3}" "4"
     bd close "${BD_STEP_VOTER_3}" --reason completed
 
     echo "[${SCENARIO_ID}] fake-workers: tally (${BD_STEP_TALLY})..."
-    bd update "${BD_STEP_TALLY}" --claim
+    bd update "${BD_STEP_TALLY}" --status=in_progress
     bd comment "${BD_STEP_TALLY}" "Tally: majority answer is 4 (unanimous 3/3)"
     bd close "${BD_STEP_TALLY}" --reason tallied
 

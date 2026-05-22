@@ -276,7 +276,7 @@ scenario02_fake_worker() {
     # Fake implementer: claim step-execute (already has assignee from route step).
 
     echo "[${SCENARIO_ID}] fake-worker: claiming ${STEP_CLASSIFY}..."
-    bd update "${STEP_CLASSIFY}" --claim
+    bd update "${STEP_CLASSIFY}" --status=in_progress
     echo "[${SCENARIO_ID}] fake-worker: writing routing decision onto ${STEP_EXECUTE}..."
     bd update "${STEP_EXECUTE}" --assignee=validation/implementer
     bd comment "${STEP_EXECUTE}" "Routing decision: implementer — request involves writing a new GraphQL endpoint (code change)"
@@ -284,7 +284,7 @@ scenario02_fake_worker() {
     bd close "${STEP_CLASSIFY}" --reason classified
 
     echo "[${SCENARIO_ID}] fake-worker: claiming ${STEP_EXECUTE}..."
-    bd update "${STEP_EXECUTE}" --claim
+    bd update "${STEP_EXECUTE}" --status=in_progress
     echo "[${SCENARIO_ID}] fake-worker: closing ${STEP_EXECUTE} with reason=completed..."
     bd close "${STEP_EXECUTE}" --reason completed
 

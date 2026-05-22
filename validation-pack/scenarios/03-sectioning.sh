@@ -238,19 +238,19 @@ scenario03_fake_workers() {
     # Close slices first (any order); join has blocker deps so close it last.
 
     echo "[${SCENARIO_ID}] fake-workers: closing slice-1 (${BD_STEP_SLICE_1})..."
-    bd update "${BD_STEP_SLICE_1}" --claim
+    bd update "${BD_STEP_SLICE_1}" --status=in_progress
     bd close "${BD_STEP_SLICE_1}" --reason completed
 
     echo "[${SCENARIO_ID}] fake-workers: closing slice-2 (${BD_STEP_SLICE_2})..."
-    bd update "${BD_STEP_SLICE_2}" --claim
+    bd update "${BD_STEP_SLICE_2}" --status=in_progress
     bd close "${BD_STEP_SLICE_2}" --reason completed
 
     echo "[${SCENARIO_ID}] fake-workers: closing slice-3 (${BD_STEP_SLICE_3})..."
-    bd update "${BD_STEP_SLICE_3}" --claim
+    bd update "${BD_STEP_SLICE_3}" --status=in_progress
     bd close "${BD_STEP_SLICE_3}" --reason completed
 
     echo "[${SCENARIO_ID}] fake-workers: closing join (${BD_STEP_JOIN})..."
-    bd update "${BD_STEP_JOIN}" --claim
+    bd update "${BD_STEP_JOIN}" --status=in_progress
     bd close "${BD_STEP_JOIN}" --reason completed
 
     echo "[${SCENARIO_ID}] fake-workers: done"

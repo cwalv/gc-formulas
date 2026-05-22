@@ -307,20 +307,20 @@ scenario05_fake_workers() {
     # → close both → step-land unblocks → treehugger closes step-land.
 
     echo "[${SCENARIO_ID}] fake-workers: foreman claiming ${BD_STEP_ORCHESTRATE}..."
-    bd update "${BD_STEP_ORCHESTRATE}" --claim
+    bd update "${BD_STEP_ORCHESTRATE}" --status=in_progress
     echo "[${SCENARIO_ID}] fake-workers: foreman closing ${BD_STEP_ORCHESTRATE} (decomposed)..."
     bd close "${BD_STEP_ORCHESTRATE}" --reason decomposed
 
     echo "[${SCENARIO_ID}] fake-workers: implementer closing ${BD_STEP_IMPLEMENT_1} (completed)..."
-    bd update "${BD_STEP_IMPLEMENT_1}" --claim
+    bd update "${BD_STEP_IMPLEMENT_1}" --status=in_progress
     bd close "${BD_STEP_IMPLEMENT_1}" --reason completed
 
     echo "[${SCENARIO_ID}] fake-workers: implementer closing ${BD_STEP_IMPLEMENT_2} (completed)..."
-    bd update "${BD_STEP_IMPLEMENT_2}" --claim
+    bd update "${BD_STEP_IMPLEMENT_2}" --status=in_progress
     bd close "${BD_STEP_IMPLEMENT_2}" --reason completed
 
     echo "[${SCENARIO_ID}] fake-workers: treehugger closing ${BD_STEP_LAND} (landed)..."
-    bd update "${BD_STEP_LAND}" --claim
+    bd update "${BD_STEP_LAND}" --status=in_progress
     bd close "${BD_STEP_LAND}" --reason landed
 
     echo "[${SCENARIO_ID}] fake-workers: done"

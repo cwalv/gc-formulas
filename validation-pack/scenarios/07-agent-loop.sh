@@ -186,7 +186,7 @@ scenario07_fake_worker() {
     # rig-side, not LLM-side.
 
     echo "[${SCENARIO_ID}] fake-worker: claiming ${BD_STEP_LOOP}..."
-    bd update "${BD_STEP_LOOP}" --claim
+    bd update "${BD_STEP_LOOP}" --status=in_progress
 
     echo "[${SCENARIO_ID}] fake-worker: adding comment to ${BD_STEP_LOOP}..."
     bd comment "${BD_STEP_LOOP}" "ran: bash -c 'cat /etc/hostname' → vp-07-agent-loop"

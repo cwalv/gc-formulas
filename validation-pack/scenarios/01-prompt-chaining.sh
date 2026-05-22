@@ -191,17 +191,17 @@ scenario01_fake_worker() {
     # The fixture asserts closed_in_order [step-a, step-b, step-c] with reason=completed.
 
     echo "[${SCENARIO_ID}] fake-worker: claiming ${BD_STEP_A}..."
-    bd update "${BD_STEP_A}" --claim
+    bd update "${BD_STEP_A}" --status=in_progress
     echo "[${SCENARIO_ID}] fake-worker: closing ${BD_STEP_A}..."
     bd close "${BD_STEP_A}" --reason completed
 
     echo "[${SCENARIO_ID}] fake-worker: claiming ${BD_STEP_B}..."
-    bd update "${BD_STEP_B}" --claim
+    bd update "${BD_STEP_B}" --status=in_progress
     echo "[${SCENARIO_ID}] fake-worker: closing ${BD_STEP_B}..."
     bd close "${BD_STEP_B}" --reason completed
 
     echo "[${SCENARIO_ID}] fake-worker: claiming ${BD_STEP_C}..."
-    bd update "${BD_STEP_C}" --claim
+    bd update "${BD_STEP_C}" --status=in_progress
     echo "[${SCENARIO_ID}] fake-worker: closing ${BD_STEP_C}..."
     bd close "${BD_STEP_C}" --reason completed
 

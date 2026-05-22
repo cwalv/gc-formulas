@@ -195,7 +195,7 @@ scenario06_fake_worker() {
     # → implementer draft-2 → evaluator approves → close with reason=approved.
 
     echo "[${SCENARIO_ID}] fake-worker: implementer claiming ${BD_STEP_ITERATE}..."
-    bd update "${BD_STEP_ITERATE}" --claim
+    bd update "${BD_STEP_ITERATE}" --status=in_progress
 
     echo "[${SCENARIO_ID}] fake-worker: implementer posting draft-1..."
     bd comment "${BD_STEP_ITERATE}" "draft-1: Teal depths call softly / Shimmering hues of stillness / Ocean meets the sky"
