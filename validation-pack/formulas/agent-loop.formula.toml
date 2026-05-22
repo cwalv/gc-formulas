@@ -64,29 +64,20 @@ tool invocation in the bead's notes. Close when done.
    commands or file reads are required and issue them in whatever order
    makes sense.
 
-4. After EACH tool invocation, append a brief trace entry to the bead's
-   notes. Include the command you ran and the first line of its output:
+4. After EACH tool invocation, add a comment to the bead recording the
+   command you ran and the first line of its output:
    ```bash
-   bd update <this-bead-id> --append-notes "bash: <command-you-ran>
+   bd comment <this-bead-id> "bash: <command-you-ran>
    output: <first line of output>"
    ```
-   Use `--append-notes` each time (not --notes) to accumulate the trace.
-   If the note text contains apostrophes or special characters, pass it
-   via a heredoc:
-   ```bash
-   bd update <this-bead-id> --append-notes "$(cat <<'NOTEEOF'
-   bash: <command>
-   output: <first line>
-   NOTEEOF
-   )"
-   ```
+   Each `bd comment` call creates a separate comment record on the bead.
 
 5. When the task is fully complete, close this bead:
    ```bash
    bd close <this-bead-id> --reason="completed"
    ```
 
-**Exit criteria:** Bead is `closed` with reason `completed`. Notes contain
-a trace of at least two bash invocations (each recorded via --append-notes
-in step 4 above). The verification predicate will assert both the
-close-reason and that notes contain evidence of bash tool use."""
+**Exit criteria:** Bead is `closed` with reason `completed` and has at
+least two comments recording bash invocations from step 4. The verifier
+asserts both the close-reason and that the comments contain evidence of
+bash tool use."""

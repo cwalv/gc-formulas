@@ -63,11 +63,6 @@ bd show "$BEAD_ID"
 # Step 7: loop back to Step 1
 ```
 
-Use `--notes` (full set), not `--append-notes`, when you write iterate
-feedback — `--append-notes` is buggy in some bd versions. The bead's prior
-notes are preserved in `bd show` output before your write; rebuild the new
-notes string with your feedback appended in your local buffer if needed.
-
 ## Exit conditions
 
 Only exit via `gc runtime drain-ack` after Step 1 returns empty AND you have

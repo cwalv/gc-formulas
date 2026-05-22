@@ -127,10 +127,11 @@ echo "[${SCENARIO_ID}]   routed ${BD_STEP_ITERATE} → validation/implementer"
 #   reasons; this is flagged as an open implementation question — see scenario
 #   report notes.)
 #
-# metadata_match / notes_contains: confirms at least one iteration fired —
-#   the evaluator issued at least one "iterate: ..." feedback note before
-#   the terminal close. Without this check, a trivial single-pass approve
-#   wouldn't exercise the ping-pong mechanism at all.
+# notes_contains: confirms at least one iteration fired — the evaluator wrote
+#   an "iterate: ..." feedback string via --notes before the terminal close.
+#   This uses the notes field (single --notes write, not multi-append), which
+#   is the evaluator's iterate mechanism. Without this check, a trivial
+#   single-pass approve wouldn't exercise the ping-pong mechanism at all.
 
 mkdir -p "${PACK_ROOT}/fixtures"
 cat > "${PACK_ROOT}/fixtures/${SCENARIO_ID}-expected.json" <<EOF

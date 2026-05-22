@@ -17,5 +17,9 @@
   "notes_contains": [
     {"bead_id": "sc-e", "value": "iterate:"},
     {"bead_id": "sc-f", "value": "iterate:"}
+  ],
+  "comments_contain": [
+    {"bead_id": "sc-e", "value": "iterate:"},
+    {"bead_id": "sc-f", "value": "iterate:"}
   ]
 }

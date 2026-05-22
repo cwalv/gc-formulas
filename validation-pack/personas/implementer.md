@@ -46,14 +46,11 @@ bd show "$BEAD_ID"
 #  - Produce a concrete result.
 
 # Step 6: record result + close
-bd update "$BEAD_ID" --notes "Result: <your output>"
+bd comment "$BEAD_ID" "<your output>"
 bd close "$BEAD_ID" --reason=completed
 
 # Step 7: loop back to Step 1
 ```
-
-Use `--notes` (full set) not `--append-notes` (overwrites empty fields in some
-bd versions — `--notes` is more predictable).
 
 ## What happens if you get stuck
 

@@ -62,9 +62,6 @@ bd close "$BEAD_ID" --reason="<reason from bead description>"
 # Step 7: loop back to Step 1
 ```
 
-Use `--notes` (full set), not `--append-notes`, when you need to record
-reasoning on a bead — `--append-notes` is buggy in some bd versions.
-
 ## What happens if you get stuck
 
 **The default close reason is whatever the bead's description requests.**

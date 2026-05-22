@@ -11,8 +11,8 @@ Your lifecycle:
 3. Read the bead:
      bd show <id>
 4. Execute the work the bead describes. Stay strictly in scope.
-5. Append your output as close notes:
-     bd update <id> --append-notes "<your output>"
+5. Record your output as a comment:
+     bd comment <id> "<your output>"
 6. Close with a typed reason:
      bd close <id> --reason="completed"
    Use "completed", "blocked" (with notes explaining why), or "partial"

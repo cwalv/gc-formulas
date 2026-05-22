@@ -12,15 +12,18 @@
   "bead_details": {
     "sc-d": {
       "metadata": {"gc.routed_to": "validation/implementer"},
-      "notes": ""
+      "notes": "",
+      "comments": []
     },
     "sc-e": {
       "metadata": {},
-      "notes": "iterate: first pass needs revision\nsome more notes"
+      "notes": "iterate: first pass needs revision\nsome more notes",
+      "comments": ["iterate: first pass needs revision"]
     },
     "sc-f": {
       "metadata": {},
-      "notes": "iterate: second pass also revised\napproved on third pass"
+      "notes": "iterate: second pass also revised\napproved on third pass",
+      "comments": ["iterate: second pass also revised", "approved on third pass"]
     }
   }
 }

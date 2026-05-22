@@ -155,7 +155,7 @@ echo "[${SCENARIO_ID}] predicate written to fixtures/${SCENARIO_ID}-expected.jso
 # Code subscription, not API-billed --print mode). The persona prompt
 # (personas/implementer.md, loaded via gc prime / prompt_template) instructs
 # the agent to loop: gc hook → bd update --claim → bd show → execute →
-# bd update --append-notes → bd close → repeat → gc runtime drain-ack on empty.
+# bd comment → bd close → repeat → gc runtime drain-ack on empty.
 #
 # NOTE: shim_spawn requires tmux in the container image (plus dolt + lsof for
 # gc start). The baseline Dockerfile does not include these; the treehugger

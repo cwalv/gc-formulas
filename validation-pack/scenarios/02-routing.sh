@@ -186,7 +186,7 @@ If the request is ambiguous, prefer \`implementer-work\`.
 4. **REQUIRED STEP — DO NOT SKIP**: write the routing decision onto the
    execute bead. Run this exact command, substituting your decision:
        bd update ${STEP_EXECUTE} --assignee=validation/<chosen>
-       bd update ${STEP_EXECUTE} --append-notes "Routing decision: <chosen> — <one sentence rationale>"
+       bd comment ${STEP_EXECUTE} "Routing decision: <chosen> — <one sentence rationale>"
    After running, confirm the --assignee write succeeded by reading it back:
        bd show ${STEP_EXECUTE} --json
    If \`assignee\` is not what you wrote, retry.

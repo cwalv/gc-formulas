@@ -12,8 +12,7 @@
 #   2. Pour the agent-loop formula (single bead: step-loop).
 #   3. Route step-loop to the implementer pool via direct metadata write.
 #   4. Write the expected predicate fixture BEFORE spawning the agent.
-#      Includes a notes_contains assertion (new predicate kind — see
-#      verify_bead_state.py flag below).
+#      Includes a comments_contain assertion.
 #   5. Spawn one implementer session via shim_spawn.
 #   6. Await step-loop closed via shim_await.
 #   7. Exit 0 on success; on failure/timeout dump diagnostics and exit 1.
@@ -21,16 +20,7 @@
 # Pattern shape: ONE bead, many internal tool invocations, agent decides
 # the plan. Validates that the substrate doesn't try to over-structure
 # dynamic agentic work — the bead is a unit of work + state container;
-# the agent owns the planning and records its trace in notes.
-#
-# notes_contains predicate (NEW):
-#   verify_bead_state.py does not yet implement notes_contains. The fixture
-#   written by this driver includes:
-#     "metadata_match": [{"bead_id": "<step-loop-id>", "key": "notes_contains",
-#                         "value": "bash"}]
-#   Treehugger must add notes_contains support to verify_bead_state.py before
-#   this predicate is enforced. The closed_in_order check (reason=completed)
-#   fires immediately with the existing verifier.
+# the agent owns the planning and records its output as a comment.
 
 set -euo pipefail
 
@@ -147,9 +137,7 @@ echo "[${SCENARIO_ID}]   routed ${BD_STEP_LOOP}"
 # ---------------------------------------------------------------------------
 # Predicate kinds used:
 #   closed_in_order   — step-loop must close with reason=completed
-#   metadata_match    — step-loop notes must contain "bash"
-#                       (notes_contains is a NEW predicate kind; verify_bead_state.py
-#                        does not yet implement it — treehugger must add support)
+#   comments_contain  — step-loop comments must contain "bash"
 
 mkdir -p "${PACK_ROOT}/fixtures"
 cat > "${PACK_ROOT}/fixtures/${SCENARIO_ID}-expected.json" <<EOF
@@ -157,7 +145,7 @@ cat > "${PACK_ROOT}/fixtures/${SCENARIO_ID}-expected.json" <<EOF
   "closed_in_order": [
     {"bead_id": "${BD_STEP_LOOP}", "reason": "completed"}
   ],
-  "notes_contains": [
+  "comments_contain": [
     {"bead_id": "${BD_STEP_LOOP}", "value": "bash"}
   ]
 }

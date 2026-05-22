@@ -39,8 +39,8 @@ Your lifecycle:
 3. Read the bead:
      bd show <id>
 4. Execute the work the bead describes. Stay strictly in scope.
-5. Append your output as close notes:
-     bd update <id> --append-notes "<your output>"
+5. Record your output as a comment:
+     bd comment <id> "<your output>"
 6. Close with a typed reason:
      bd close <id> --reason="completed"
    Use "completed", "blocked" (with notes explaining why), or "partial"
@@ -126,9 +126,6 @@ bd close "$BEAD_ID" --reason="<reason from bead description>"
 
 # Step 7: loop back to Step 1
 ```
-
-Use `--notes` (full set), not `--append-notes`, when you need to record
-reasoning on a bead — `--append-notes` is buggy in some bd versions.
 
 ## What happens if you get stuck
 
@@ -224,11 +221,6 @@ bd show "$BEAD_ID"
 
 # Step 7: loop back to Step 1
 ```
-
-Use `--notes` (full set), not `--append-notes`, when you write iterate
-feedback — `--append-notes` is buggy in some bd versions. The bead's prior
-notes are preserved in `bd show` output before your write; rebuild the new
-notes string with your feedback appended in your local buffer if needed.
 
 ## Exit conditions
 

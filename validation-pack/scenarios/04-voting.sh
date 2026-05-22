@@ -144,38 +144,18 @@ done
 # verify_bead_state.py reads this file after the scenario.
 #
 # PREDICATE KINDS IN USE:
-#   - closed_unordered: predicate kind introduced in scenario 03 — not yet
-#     supported by verify_bead_state.py. Treehugger must add support for it.
-#     Asserts each named bead is closed with the named reason; no ordering
-#     constraint among entries. The three voter beads are the canonical use
-#     case: they close in any mutual order.
-#
-#     Schema: [{"bead_id": "...", "reason": "..."}]
-#
-#   - closed_in_order: supported today. Used here for the tally bead alone,
-#     expressing that it closes AFTER all voters. Asserts the tally bead
-#     closed with reason `tallied`.
-#
-#   - metadata_match: NEW predicate kind introduced by this scenario. Asserts
-#     that a named field on a bead's record matches a given condition. Used here
-#     to verify the tally bead's notes contain the majority answer "4".
-#     Treehugger must extend verify_bead_state.py to evaluate this predicate
-#     kind.
-#
-#     Proposed schema: [{"bead_id": "...", "key": "notes_contains", "value": "..."}]
-#     Semantics for notes_contains: the bead's notes field (string) contains the
-#     given value as a substring. Case-sensitive. A "4" in notes satisfies the
-#     predicate if the tally recorded "Majority: 4" (which contains "4").
-#
-# Until closed_unordered and metadata_match are implemented in verify_bead_state.py,
-# the scenario driver performs the terminal-state check inline: it awaits
-# step-tally closing (step 6), which by substrate dep semantics guarantees all
-# three voter beads already closed.
+#   - closed_unordered: asserts each named bead is closed with the named reason;
+#     no ordering constraint among entries. The three voter beads close in any
+#     mutual order.
+#   - closed_in_order: used for the tally bead alone, asserting it closes AFTER
+#     all voters with reason `tallied`.
+#   - comments_contain: asserts the tally bead has at least one comment
+#     containing "4", confirming the majority answer was recorded via bd comment.
 
 mkdir -p "${PACK_ROOT}/fixtures"
 cat > "${PACK_ROOT}/fixtures/${SCENARIO_ID}-expected.json" <<EOF
 {
-  "_comment": "closed_unordered (from scenario 03) asserts each named bead is closed with the named reason, no ordering constraint. closed_in_order asserts the tally closed after all voters (reason=tallied). metadata_match is a NEW predicate kind introduced by this scenario — treehugger must extend verify_bead_state.py to support it. Schema: [{\"bead_id\": \"...\", \"key\": \"notes_contains\", \"value\": \"...\"}]. notes_contains asserts the bead's notes string contains the given value as a substring.",
+  "_comment": "closed_unordered asserts each voter bead is closed with reason=completed (no ordering constraint). closed_in_order asserts the tally bead closed with reason=tallied after all voters. comments_contain asserts the tally bead has a comment containing the majority answer.",
   "closed_unordered": [
     {"bead_id": "${BD_STEP_VOTER_1}", "reason": "completed"},
     {"bead_id": "${BD_STEP_VOTER_2}", "reason": "completed"},
@@ -184,7 +164,7 @@ cat > "${PACK_ROOT}/fixtures/${SCENARIO_ID}-expected.json" <<EOF
   "closed_in_order": [
     {"bead_id": "${BD_STEP_TALLY}", "reason": "tallied"}
   ],
-  "notes_contains": [
+  "comments_contain": [
     {"bead_id": "${BD_STEP_TALLY}", "value": "4"}
   ]
 }

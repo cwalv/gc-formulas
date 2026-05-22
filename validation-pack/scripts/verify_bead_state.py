@@ -45,6 +45,10 @@ Predicate schema (fixtures/<scenario>-expected.json):
     "notes_contains": [
         {"bead_id": "...", "value": "<substring>"},
         ...
+    ],
+    "comments_contain": [
+        {"bead_id": "...", "value": "<substring>"},
+        ...
     ]
 }
 
@@ -64,6 +68,9 @@ Predicate schema (fixtures/<scenario>-expected.json):
   on demand via `bd show <id> --json`.
 - notes_contains: each listed bead's notes field must contain value as a
   substring. Fetched on demand via `bd show <id> --json`.
+- comments_contain: each listed bead must have at least one comment whose
+  text contains value as a substring. Reads `bd show <id> --json | .[0].comments`
+  (array of objects with a `text` field, or list of strings).
 
 Synthetic state schema (fixtures/self-test-state.json):
 {
@@ -74,7 +81,11 @@ Synthetic state schema (fixtures/self-test-state.json):
     "open": [{"bead_id": "..."}, ...],
     "hooked": [{"bead_id": "..."}, ...],
     "bead_details": {
-        "<bead_id>": {"metadata": {"key": "value", ...}, "notes": "..."},
+        "<bead_id>": {
+            "metadata": {"key": "value", ...},
+            "notes": "...",
+            "comments": ["comment-text-1", "comment-text-2", ...]
+        },
         ...
     }
 }
@@ -170,6 +181,28 @@ def query_bead_notes(bead_id: str) -> str:
     return item.get("notes") or ""
 
 
+def query_bead_comments(bead_id: str) -> list[str]:
+    """Fetch a single bead's comment texts via `bd show <id> --json`.
+
+    Returns a list of comment-text strings (may be empty).
+    comments field is either a list of objects with a "text" key, or a list
+    of plain strings. Both shapes are normalised to a list of strings.
+    Exits the process on bd command failure.
+    """
+    rows = _run_bd("show", bead_id)
+    if not rows:
+        return []
+    item = rows[0] if isinstance(rows, list) else rows
+    raw = item.get("comments") or []
+    texts: list[str] = []
+    for entry in raw:
+        if isinstance(entry, dict):
+            texts.append(entry.get("text") or "")
+        else:
+            texts.append(str(entry))
+    return texts
+
+
 def load_synthetic_state() -> dict:
     path = PACK_ROOT / "fixtures" / "self-test-state.json"
     with path.open() as f:
@@ -259,9 +292,9 @@ def assert_state(state: dict, predicate: dict, *, live: bool = True) -> bool:
     Returns True if all assertions pass; prints PASS/FAIL lines and returns
     False on first failure.
 
-    When live=True (normal mode), metadata_match, assignee_match, and
-    notes_contains predicates call bd show via subprocess.  When
-    live=False (self-test mode), they read from state["bead_details"] instead.
+    When live=True (normal mode), metadata_match, assignee_match,
+    notes_contains, and comments_contain predicates call bd show via subprocess.
+    When live=False (self-test mode), they read from state["bead_details"] instead.
     """
     all_passed = True
 
@@ -285,6 +318,19 @@ def assert_state(state: dict, predicate: dict, *, live: bool = True) -> bool:
             details = state.get("bead_details", {}).get(bead_id, {})
             return details.get("notes", "") or ""
         return query_bead_notes(bead_id)
+
+    def _get_comments(bead_id: str) -> list[str]:
+        if not live:
+            details = state.get("bead_details", {}).get(bead_id, {})
+            raw = details.get("comments") or []
+            texts: list[str] = []
+            for entry in raw:
+                if isinstance(entry, dict):
+                    texts.append(entry.get("text") or "")
+                else:
+                    texts.append(str(entry))
+            return texts
+        return query_bead_comments(bead_id)
 
     # --- closed_in_order ---
     if "closed_in_order" in predicate:
@@ -419,6 +465,23 @@ def assert_state(state: dict, predicate: dict, *, live: bool = True) -> bool:
             else:
                 print(
                     f"PASS: bead {bead_id!r} notes contain {substring!r}"
+                )
+
+    # --- comments_contain ---
+    if "comments_contain" in predicate:
+        for exp in predicate["comments_contain"]:
+            bead_id = exp["bead_id"]
+            substring = exp["value"]
+            comments = _get_comments(bead_id)
+            if not any(substring in text for text in comments):
+                print(
+                    f"FAIL: bead {bead_id!r} comments do not contain {substring!r}",
+                    file=sys.stderr,
+                )
+                all_passed = False
+            else:
+                print(
+                    f"PASS: bead {bead_id!r} comments contain {substring!r}"
                 )
 
     return all_passed
