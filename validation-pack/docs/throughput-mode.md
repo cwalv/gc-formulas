@@ -111,6 +111,83 @@ Three orthogonal axes that the unit-test layer doesn't surface:
   fault injection (kill an agent mid-flight, drop a bead) to test recovery?
   Open question — could be Phase 2 of this work.
 
+### Composition + catalog redundancy
+
+The 7 Anthropic patterns aren't orthogonal primitives — they're idioms.
+Structurally, 02 (routing), 03 (sectioning), 04 (voting), and 05
+(orchestrator-workers) are all variations of one fan-out shape parameterised
+by `(decompose_yes/no, fan_out_N, aggregation_kind)`:
+
+| Pattern | Decompose? | N | Aggregation |
+|---|---|---|---|
+| 02 routing | no | 1 | none |
+| 03 sectioning | no | fixed | simple join |
+| 04 voting | no | fixed | consensus |
+| 05 orchestrator-workers | yes | dynamic | validation + land |
+
+Our existing scenarios prove the skeleton works under each parameter
+combination. Useful for the unit-test layer (each variation does work as
+advertised). Less useful for the integration layer — there's no scenario
+that *combines* shapes, and combination is what real agent systems actually
+do.
+
+**The composition mechanic is already free in bd/molecule:** a step in a
+parent formula is itself the root of a child formula. When the persona
+running a step calls `bd mol wisp <child-formula>` from inside the step's
+work body, bd creates a child wisp whose root inherits the parent step as
+its parent. `bd dep tree` shows it as nested; the parent's `shim_await`
+blocks until the child's terminal bead closes. No new infrastructure
+needed.
+
+A scenario that would test this:
+
+```
+nested-workflow root
+└── step-orchestrate (implementer persona; bead description says
+                       "pour orchestrator-workers for this task")
+    └── orchestrator-workers child wisp
+        ├── step-orchestrate (foreman)
+        ├── step-implement-1 (impl)
+        ├── step-implement-2 (impl)
+        └── step-land (treehugger) → closes; parent step sees it
+```
+
+Verifier predicates:
+
+- Parent bead closes only after the child wisp's terminal bead closes
+  (timestamp ordering).
+- Parent's `comments_contain` includes a marker only the child workflow
+  could have written (e.g., the treehugger's `landed` summary).
+- `bd dep tree <parent-root>` shows the nested structure.
+
+What this tests that the existing scenarios don't:
+- The composition mechanic (parent waits on child wisp; bd handles the
+  dependency edge correctly).
+- The bead-as-spec idea — role behaviour lives in the bead's description,
+  not the persona prompt. The parent step's persona is just "implementer";
+  the *bead description* says "pour child workflow X". Same persona could
+  do many things based on what its bead says.
+- A natural subsumption of the redundant fan-out variants — if you have
+  one composing-scenario + one fan-out scenario, the rest become
+  parameter combinations you can derive rather than scenarios you have
+  to maintain.
+
+Open questions before building it:
+
+- How does the bead-as-spec idea interact with the persona work-loop's
+  poll behaviour? The implementer persona currently polls `bd ready
+  --assignee=validation/implementer`. If the step's bead description says
+  "do X" but X happens to be "pour child workflow", does anything in the
+  work-loop need to know? Hopefully no — pour is just another bd command.
+- Aggregation across composed levels: if the child wisp produces N comments,
+  does the parent step see them, or does it see only the child's terminal
+  close event? The parent step's persona needs to read child outputs
+  somehow. Likely: `bd show <child-terminal-bead> --json` from the parent's
+  step body. Worth verifying.
+- Does this make the catalog redundancy actively wasteful? Or does each
+  variant still earn its keep as a unit-test fixture? Argument for keeping:
+  shape-level regression coverage. Argument for collapsing: maintenance cost.
+
 ## Non-goals
 
 - Replacing the unit-test scenarios. They stay as the regression layer.
