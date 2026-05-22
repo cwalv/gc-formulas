@@ -32,6 +32,10 @@ fi
 export SCENARIO_ID
 export PACK_ROOT
 
+# Source checkpoint helper so the 'verify' checkpoint is available here.
+# shellcheck source=scripts/checkpoint.sh
+source "${PACK_ROOT}/scripts/checkpoint.sh"
+
 # Run driver; don't let set -e abort us here — we want to capture the code.
 DRIVER_RC=0
 bash "${SCENARIO_SCRIPT}" || DRIVER_RC=$?
@@ -40,6 +44,9 @@ bash "${SCENARIO_SCRIPT}" || DRIVER_RC=$?
 # driver failed.
 VERIFIER_RC=0
 python3 "${PACK_ROOT}/scripts/verify_bead_state.py" --scenario "${SCENARIO_ID}" || VERIFIER_RC=$?
+
+# Checkpoint: after verifier, before artifact capture (and exit).
+checkpoint verify
 
 # A failed driver is the root cause; don't mask it.
 # Dump full state of every bead the verifier touched (per the fixture).

@@ -32,12 +32,17 @@ direction-of-travel + the moves I'd make first.
 
 ## What's already there (today)
 
-- **Run-scenario debug dump** (`scripts/run-scenario.sh` post-verifier) —
+- [x] **Run-scenario debug dump** (`scripts/run-scenario.sh` post-verifier) —
   iterates every bead referenced in the fixture, prints status / reason /
   assignee / metadata / notes to stderr. Lands in `docker logs` so it
   survives the container exit. Toggle off with `DEBUG_DUMP_BEADS=0`.
   This is the minimal "what did the agent actually do" probe. Just
   landed in this session.
+- [x] **Failure-artifact capture** (`scripts/run-scenario.sh`) — on any
+  failure, snapshots agent session logs, tmux pane scrollback, bd JSONL +
+  dolt export, and the predicate fixture into a timestamped directory under
+  `debug-artifacts/` (host-mounted). Captured before the `--rm` container
+  exits so the state survives.
 - **Manual debug container pattern** — `docker run -d --entrypoint sleep
   validation-pack:latest 3600`, then `docker exec` to step through.
   Useful but ad-hoc; surfaced today's bugs.
@@ -46,21 +51,36 @@ direction-of-travel + the moves I'd make first.
 
 ### Tier 1 — cheap, useful immediately
 
-- **Container preservation flag** — `DEBUG_KEEP_CONTAINER=1` skips
+- [ ] **Container preservation flag** — `DEBUG_KEEP_CONTAINER=1` skips
   `docker compose run --rm`, keeps the container around. Operator
   inspects with `docker exec` and `docker stop` when done. One-line
   change to a wrapper script in `scripts/`.
 
-- **Pre-spawn checkpoint** — environment variable `DEBUG_PAUSE_AT=spawn`
-  (or `=close`, `=verify`) — drivers `sleep 600` at the named checkpoint
-  instead of proceeding. Operator drops a `docker exec` shell, inspects,
-  unblocks with `docker exec <c> pkill sleep`.
+  **Out of scope for in-container implementation.** `DEBUG_KEEP_CONTAINER`
+  must live in a *host-side* wrapper script that decides whether to pass
+  `--rm` to `docker compose run`. The container itself has no way to
+  suppress its own removal — that flag is set by the compose invocation
+  before the container starts. A host wrapper is a separate deliverable
+  outside the container boundary. Skipped for now; the checkpoint mechanism
+  below (Tier 1b) achieves the same interactive-inspection goal without
+  needing container preservation.
 
-- **`vp inspect` helper script** — `scripts/inspect.sh <scenario-id>`
-  inside the container: prints all wisps, their assignee, status, last
-  10 chars of notes, plus any open tmux sessions and their pane
-  state. One snapshot, one screen. Used both interactively and in the
-  exit dump.
+- [x] **`DEBUG_PAUSE_AT` checkpoint mechanism** — `scripts/checkpoint.sh`
+  (sourced by drivers) + `checkpoint <name>` calls added to
+  `scenarios/07-agent-loop.sh` (proof-of-concept) and the `verify`
+  checkpoint wired into `scripts/run-scenario.sh`. Supported checkpoints:
+  `pour`, `route`, `spawn`, `close`, `verify`. Set
+  `DEBUG_PAUSE_AT=pour,spawn` (comma-separated) to pause at multiple points.
+  Each pause sleeps 7200s and prints an inspect + unblock hint. Unblock
+  with `docker exec <c> pkill -f "sleep 7200"`.
+
+- [x] **`scripts/inspect.sh`** — one-shot in-container snapshot:
+  all bd wisps (id, status, close_reason, assignee, comment_count via
+  `bd list --json`; fallback to `bd show <id>` for fixture-referenced
+  beads); gc supervisor status + active sessions; tmux session list with
+  last 5 pane lines; JSONL line count + TRUE/FALSE dolt-vs-JSONL match.
+  Run via `docker exec <container> /home/agent/validation-pack/scripts/inspect.sh`.
+  Idempotent (read-only), target < 2 s.
 
 ### Tier 2 — moderate effort, big leverage
 

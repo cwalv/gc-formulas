@@ -33,6 +33,10 @@ set -euo pipefail
 
 cd "${PACK_ROOT}"
 
+# Source checkpoint helper (DEBUG_PAUSE_AT support).
+# shellcheck source=scripts/checkpoint.sh
+source "${PACK_ROOT}/scripts/checkpoint.sh"
+
 # Source the orchestrator shim (defaults to gc).
 SHIM="${SHIM:-gc}"
 SHIM_FILE="${PACK_ROOT}/shims/${SHIM}.sh"
@@ -119,6 +123,9 @@ BD_ROOT="$(_parse_root)"
 
 echo "[${SCENARIO_ID}] root=${BD_ROOT} step-loop=${BD_STEP_LOOP}"
 
+# Checkpoint: after wisp is poured, before routing.
+checkpoint pour
+
 # ---------------------------------------------------------------------------
 # 4. Route step-loop to the implementer pool (direct assignee write)
 # ---------------------------------------------------------------------------
@@ -153,12 +160,18 @@ EOF
 
 echo "[${SCENARIO_ID}] predicate written to fixtures/${SCENARIO_ID}-expected.json"
 
+# Checkpoint: after routing, before shim_spawn.
+checkpoint route
+
 # ---------------------------------------------------------------------------
 # 6. Spawn the implementer agent (via gc shim)
 # ---------------------------------------------------------------------------
 
 echo "[${SCENARIO_ID}] spawning implementer agent..."
 shim_spawn implementer 1
+
+# Checkpoint: after shim_spawn, before shim_await.
+checkpoint spawn
 
 # ---------------------------------------------------------------------------
 # 7. Await terminal state via shim_await
@@ -173,6 +186,9 @@ echo "[${SCENARIO_ID}] awaiting step-loop (${BD_STEP_LOOP}) close..."
 
 AWAIT_RC=0
 shim_await "${BD_STEP_LOOP}" 1500 || AWAIT_RC=$?
+
+# Checkpoint: after shim_await detects close, before exit.
+checkpoint close
 
 # ---------------------------------------------------------------------------
 # 8. Outcome
