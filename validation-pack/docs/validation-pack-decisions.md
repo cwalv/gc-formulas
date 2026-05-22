@@ -256,6 +256,27 @@ The cleanest fix is substrate-level: have all bd processes talk to a single shar
 
 The ntm shim's correctness for single-agent scenarios (vp07n PASS) is the load-bearing result: it proves the shim primitives (spawn / prime / await) work end-to-end. Multi-agent coverage is blocked on substrate, not on shim design.
 
+## Manual walkthrough — two new bugs found in <10 seconds total
+
+Running through scenario 02's foreman task by hand in a sleep-entrypoint debug container surfaced two issues the LLM-driven full-scenario runs never isolated:
+
+1. **bd `--include-ephemeral --metadata-field` ignores the filter** — `bd ready --include-ephemeral --metadata-field gc.routed_to=validation/foreman --unassigned` returns all wisps (molecule root + classify + execute), not just the foreman-routed bead. Filed upstream as [gastownhall/beads#4082](https://github.com/gastownhall/beads/issues/4082). Worked around in personas with a jq client-side filter.
+
+2. **Formula description points at the wrong field** — the formula's step-classify description tells the foreman to find the sibling via `jq '.children'` on the parent, but `bd show --json` exposes the parent→child relation as `dependents`, not `children`. The literal command in the description returns `null` and the foreman can't locate the execute bead. Fixed in `formulas/routing.formula.toml`.
+
+The manual run took 4 seconds and surfaced both bugs that 30+ minutes of full-scenario LLM iterations hadn't disambiguated. Lesson for the test rig (separate doc decision below): the validation pack needs a debuggability axis — a way to run scenario sub-steps without an LLM-in-the-loop so substrate / fixture / persona bugs surface fast.
+
+## Decision: debuggability becomes a first-class axis of the test rig
+
+**Why:** LLM-driven full-scenario runs are slow (minutes per iteration) AND obscure root cause (any of: substrate write loss, persona prose ambiguity, model verbosity, bd query bug, fixture mismatch can manifest as the same failure surface). The bugs above hid behind 30+ minutes of LLM iteration; the manual run isolated both in 4 seconds.
+
+**Direction (to expand in a follow-up commit):** the validation pack should support a "manual mode" where each scenario can run its driver steps (pour, route, fixture-write) and then expose the agent-task as a function the operator (or a smaller test program) can step through without spawning Claude. Goals:
+- Each substrate operation is timed individually (we need to budget per step).
+- Failure surfaces should distinguish "substrate lost the write" from "agent didn't perform the step".
+- Reduced scope: a single bead, a single update, a verify — not a full DAG end-to-end.
+
+This is a separate work item; capturing here so it's not lost.
+
 ## Final coverage matrix (end of session)
 
 | Scenario | gc shim | ntm shim | ntm root cause when failing |

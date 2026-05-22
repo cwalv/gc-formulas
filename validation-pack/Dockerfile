@@ -108,12 +108,14 @@ USER agent
 # (auto-export = on) writes .beads/issues.jsonl after each bd write, which
 # causes lost-update races when multiple bd processes (claude + gc
 # control-dispatcher + supervisor's order machinery) interleave their
-# import-modify-export cycles. With BEADS_EXPORT_AUTO=false bd reads + writes
-# go through the embedded dolt instance directly; JSONL is only updated on
-# explicit `bd export`. Dolt has proper transactional semantics so concurrent
-# writers are safer there. (Observed: gc's own supervisor sets this env on
-# its bd subshells; mirror it container-wide.)
-ENV BEADS_EXPORT_AUTO=false
+# Pair with the flock wrapper around bd: each bd invocation starts a fresh
+# embedded-dolt and imports the JSONL into it. Without auto-export, the JSONL
+# stays at the initial snapshot and subsequent bd invocations re-import the
+# stale state — losing every write made by earlier invocations. With auto-
+# export ON, each bd writes its in-memory state back to JSONL at end, so the
+# NEXT bd's auto-import sees those writes. Combine with flock to serialise
+# invocations and avoid the v1.0.4-class concurrent-export race.
+ENV BEADS_EXPORT_AUTO=true
 
 # Identity for dolt and git. gc's supervisor spawns an external dolt sql-server
 # for the city, and dolt refuses to start without a configured identity. Global

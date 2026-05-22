@@ -100,13 +100,15 @@ If the request is ambiguous, prefer `implementer-work`.
 3. Find the step-execute bead ID. It was created alongside this bead as part
    of the same formula pour. Use the dependency graph to locate it:
    ```bash
-   # Show the parent (root) bead's children to find the sibling step:
-   bd show <this-bead-id> --json | jq '.parent'
-   # Then show the parent to list children:
-   bd show <parent-id> --json | jq '.children'
+   # 1. Get this bead's parent (root) bead id from the .[0].parent field:
+   PARENT=$(bd show <this-bead-id> --json | jq -r '.[0].parent')
+   # 2. List the parent's dependents — the field is `dependents`, not
+   #    `children` (bd's JSON shape exposes the parent→child relation as
+   #    "dependents" on the parent). Pick the one whose title starts with
+   #    "Execute":
+   STEP_EXECUTE_ID=$(bd show "$PARENT" --json | jq -r '.[0].dependents[] | select(.title | test("^Execute")) | .id')
    ```
-   The sibling bead whose title contains "Execute" is step-execute.
-   Note its ID — call it STEP_EXECUTE_ID.
+   Confirm STEP_EXECUTE_ID is a non-empty bead id before continuing.
 
 4. Decide the classification: `implementer` or `treehugger`.
 
