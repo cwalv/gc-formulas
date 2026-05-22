@@ -1,0 +1,59 @@
+description = """
+Microscope validation formula — smallest possible end-to-end rig check.
+
+This is NOT an Anthropic catalog pattern exercise. Its sole purpose is to
+validate the rig itself (shim, persona, Dockerfile, bd substrate) in the
+shortest possible time. One bead, one trivial task, one agent turn.
+
+The success predicate: the bead closes with reason `completed` and has at
+least one comment from the agent. If this fails, the bug is in the rig; if
+this passes but a catalog scenario fails, the bug is in the scenario complexity
+or the Anthropic pattern implementation."""
+
+formula = "microscope"
+version = 1
+
+# pour=true: materialise step children even under `bd mol wisp`.
+# Required since bd c459812e (2026-03-02) flipped wisp to root-only.
+pour = true
+
+[vars]
+[vars.assignee]
+description = "Persona to route the work bead to"
+default = "implementer"
+
+[[steps]]
+id = "probe"
+title = "Rig probe — read hostname and close"
+description = """
+Read /etc/hostname, post its contents in a `bd comment`, then close this bead.
+
+**Lifecycle:**
+
+1. Read this bead before doing anything:
+   ```bash
+   bd show <this-bead-id>
+   ```
+
+2. Claim it immediately:
+   ```bash
+   bd update <this-bead-id> --claim
+   ```
+
+3. Read /etc/hostname:
+   ```bash
+   cat /etc/hostname
+   ```
+
+4. Post the hostname as a comment:
+   ```bash
+   bd comment <this-bead-id> "hostname: $(cat /etc/hostname)"
+   ```
+
+5. Close this bead:
+   ```bash
+   bd close <this-bead-id> --reason=completed
+   ```
+
+**Exit criteria:** Bead is `closed` with reason `completed` and has at least
+one comment containing the hostname."""
