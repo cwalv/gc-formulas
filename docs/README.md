@@ -9,7 +9,8 @@ lives in [`archive/`](archive/).
 | [`position.md`](position.md) | The architectural position + 5 testable claims |
 | [`state.md`](state.md) | What's validated today, what's not |
 | [`principles.md`](principles.md) | Load-bearing design principles |
-| [`throughput-mode.md`](throughput-mode.md) | Plan for testing claims 2-5 |
+| [`throughput-mode.md`](throughput-mode.md) | Plan for testing claims 2-5 (capacity under load) |
+| [`plan-evals.md`](plan-evals.md) | Plan-quality eval design: measure pipeline reliability + wall-clock vs ralph baseline |
 | [`debugging.md`](debugging.md) | How to debug a failing scenario in the validation-pack |
 | [`archive/`](archive/) | Historical exploration (long; for context) |
 
