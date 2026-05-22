@@ -255,3 +255,17 @@ The cleanest fix is substrate-level: have all bd processes talk to a single shar
 **Why:** the validation-pack's purpose is to exercise the orchestrator-substrate interaction. Discovering that ntm + bd v1.0.3 has a multi-writer hole IS a useful validation finding — it's what we wanted the rig to surface. Forcing it green via B or C right now would hide that finding. Document the gap, file an upstream bd issue (or comment on existing #3948/#3964/#3822), and revisit when the upstream fix lands or when there's appetite for option B.
 
 The ntm shim's correctness for single-agent scenarios (vp07n PASS) is the load-bearing result: it proves the shim primitives (spawn / prime / await) work end-to-end. Multi-agent coverage is blocked on substrate, not on shim design.
+
+## Final coverage matrix (end of session)
+
+| Scenario | gc shim | ntm shim | ntm root cause when failing |
+|---|---|---|---|
+| 01 prompt-chaining | PASS (earlier session) | not exercised | — |
+| 02 routing | PASS | FAIL | foreman closes step-classify without writing metadata on step-execute; metadata write either skipped or lost to JSONL race |
+| 03 sectioning | PASS | PARTIAL | step-join closes but 2/3 slices stay open (substrate concurrency wipes closes) |
+| 04 voting | PASS | PARTIAL | step-tally closes but voters stay open (substrate concurrency) |
+| 05 orchestrator-workers | PASS | PARTIAL | step-land closes but orchestrate + workers stay open (substrate concurrency) |
+| 06 evaluator-optimizer | PASS | FAIL on forced-iterate assertion only | evaluator approves but forced-iterate marker is missing from notes (write lost / skipped) |
+| 07 agent-loop | PASS | **PASS** | single agent, single bd writer — no concurrency, the shim's correctness is end-to-end demonstrated |
+
+Read: gc shim is 7-for-7 at the workflow-pattern layer. ntm shim is 1-for-7 at the same layer; the other six exhibit substrate-level breakage rather than shim-level breakage. Root cause is consistently "concurrent bd processes from N tmux panes race against each other and against the driver's own bd writes; bd v1.0.3 only handles the single-writer case correctly."
