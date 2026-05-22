@@ -165,8 +165,8 @@ When done, your work is complete. Output a summary of what you changed."
 
     echo "[fanout] Spawning agent for ${ENTITY_BASENAME}" >&2
     claude -p "${BRIEF}" \
+        --dangerously-skip-permissions \
         --output-format json \
-        --no-preamble \
         > "${AGENT_OUT}" \
         2> "${AGENT_ERR}" &
 
