@@ -16,5 +16,19 @@
     "max_depth":      2,
     "fan_in_to_sink": 6
   },
-  "notes": "6 sibling error-class implementers (one per concrete class) fan into 1 merger that extends shared state (codes.py, registry.py). The merger is the only node with cross-file authority."
+  "idiom_alternates": [
+    {
+      "name": "two-phase-commit-with-contract-author",
+      "idiom": "two-phase-commit",
+      "personas": {"contract-author": 1, "worker": 6},
+      "shape": {
+        "roots":          1,
+        "sinks":          6,
+        "max_depth":      2,
+        "fan_in_to_sink": 1
+      },
+      "rationale": "Contract-first: a contract-author bead pre-stocks the shared state (codes.py + registry.py) BEFORE the 6 per-class workers run. This is execution-safe — workers can reference ErrorCode.X because the contract-author has already defined every X. Different shape from synthesis-pipeline (merge-after) but structurally sound for this case. Empirically valid for any execution layer that supports a leading contract bead."
+    }
+  ],
+  "notes": "Primary reference is synthesis-pipeline: 6 sibling implementers fan into 1 merger that extends shared state. This pairs with the orchworkers worker-layer pattern (validated empirically). Two-phase-commit-with-contract-author is accepted as a structurally-equivalent alternative (sonnet's preferred shape). Both pre-stock shared-state authority in a single bead — they just differ on whether it runs before or after the workers."
 }

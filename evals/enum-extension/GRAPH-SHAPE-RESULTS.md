@@ -1,6 +1,6 @@
 # enum-extension graph-shape results
 
-Phase B (architect-quality) eval. Plan-only: the planner is given the design
+Phase B (architect-quality) eval. Plan-only: the planner sees the design
 doc (`spec.md`) + the choreography idioms library + the starting-state tree,
 and must produce a bead graph (idiom + nodes + deps). Scored against
 `reference-graph.json` for semantic equivalence on three axes: idiom, per-
@@ -8,67 +8,114 @@ persona node counts, and dep topology.
 
 ## Reference shape
 
-- Idiom: `synthesis-pipeline`
-- 6 worker beads (one per concrete error class) → 1 merger bead (extends
-  `codes.py` + `registry.py`).
-- Topology: 6 roots, 1 sink, max_depth 2, fan_in_to_sink 6.
+Two shapes accepted as **structurally sound** (both pre-stock shared-state
+authority in a single bead; they differ only on whether it runs before or
+after the workers):
 
-The merger is load-bearing: workers can't extend shared state in parallel
-without colliding, so the architect must split *who edits what*.
+| Reference | Idiom | Personas | Notes |
+|---|---|---|---|
+| **Primary** | `synthesis-pipeline` | 6 worker → 1 merger | "merge-after." Pairs with the orchworkers worker-layer pattern (validated empirically). |
+| Alternate | `two-phase-commit` (with contract-author) | 1 contract-author → 6 worker | "contract-first." Pre-stocks codes.py + registry.py before the per-class fan-out. Arguably more execution-safe — workers don't reference enum members that haven't been defined yet. |
+
+Both shapes solve the core problem: **codes.py + registry.py have a single
+writer**, not 6 race-writers. The plan-only eval can't tell us which is
+*better* (would require running both under matched worker patterns), but it
+can tell us which the model converges to.
 
 ## Results
 
-| Planner model | N | idiom | persona | shape | overall |
+| Planner model | N | Primary match | Alternate match | **Structurally sound** | Failure (no-match) |
 |---|---|---|---|---|---|
-| **opus 4.7** | 10 | 10/10 | 10/10 | 10/10 | **10/10** |
-| sonnet 4.6 | 5 | 0/5 | 0/5 | 0/5 | 0/5 |
+| **opus 4.7** | 10 | **10/10** | 0/10 | **10/10** | 0/10 |
+| sonnet 4.6 | 10 | 2/10 | 4/10 | **6/10** | 4/10 |
 
-## Headline finding
+## Headline finding (corrected)
 
-**Opus is a competent architect on this case; sonnet is not.** Opus picks
-synthesis-pipeline every time with the correct 6+1 topology. Sonnet picks
-`two-phase-commit` (contract-author + N workers) in 5/5 — a defensible-
-sounding mistake. Two-phase-commit's contract-author writes the contract
-(here: extends `codes.py` + `registry.py`?) and workers implement against
-it — but for that to work the workers must NOT write shared state, and
-sonnet's graphs leave the per-class workers responsible for both their
-own file AND adding their variant to `codes.py`/`registry.py`. That's the
-exact race-write failure mode the case was designed to surface.
+**Both opus and sonnet converge to structurally-sound shapes on this case,
+but they pick *different* idioms.** Opus consistently picks synthesis-
+pipeline (merge-after); sonnet consistently picks two-phase-commit
+(contract-first) when it gets a sound shape at all.
 
-The model recognizes "there is a contract" but mis-locates the cross-file
-authority — it puts the contract-author *before* the workers when the
-case actually wants the merge step *after* the workers.
+Earlier framing of "sonnet picks the wrong idiom" was wrong: sonnet's
+two-phase-commit graphs include a `contract-author` bead that pre-stocks
+codes.py + registry.py before the per-class fan-out. That's defensible —
+arguably more so than synthesis-pipeline, which would have workers writing
+class code referencing `ErrorCode.NOT_FOUND` before NOT_FOUND exists.
 
-## Per-rep detail (sonnet)
+The honest gap is at the bottom: **sonnet produces an unsound graph
+40% of the time** (4 reps: three of them only emitted 3 workers instead of
+6, dropping half the error classes; one picked plain fanout with no
+contract-author or merger, which actually would race-write shared state).
+Opus's failure rate at the same task is 0/10.
 
-All 5 reps picked `two-phase-commit`. Worker count varied (2, 3, 3, 6, 6) —
-sometimes the planner generated only a subset of the 6 error classes.
-Persona breakdown: `{contract-author: 1, worker: N}`.
+## Per-rep detail (sonnet N=10)
+
+| Rep | Idiom | Personas | Status |
+|---|---|---|---|
+| 01 | two-phase-commit | {contract-author:1, worker:6} | sound (alt) |
+| 02 | two-phase-commit | {contract-author:1, worker:6} | sound (alt) |
+| 03 | synthesis-pipeline | {worker:6, merger:1} | sound (primary) |
+| 04 | two-phase-commit | {contract-author:1, worker:6} | sound (alt) |
+| 05 | fanout | {worker:7} | **broken** (no shared-state owner) |
+| 06 | two-phase-commit | {contract-author:1, worker:3} | **incomplete** (only 3 of 6 classes) |
+| 07 | two-phase-commit | {contract-author:1, worker:6} | sound (alt) |
+| 08 | two-phase-commit | {contract-author:1, worker:3} | **incomplete** |
+| 09 | synthesis-pipeline | {worker:6, merger:1} | sound (primary) |
+| 10 | two-phase-commit | {contract-author:1, worker:3} | **incomplete** |
+
+3 of the 4 "broken" reps are the same failure mode: sonnet emits a graph
+with only 3 implementer beads, each scoped to 2 class files — i.e. it
+batched 2 classes per worker. **This is a deliberate structural choice**,
+not a counting error: all three reps' `reasoning` field explicitly says
+"three parallel implementer beads" / "the three implementer beads run
+concurrently." Sonnet is *consciously* choosing 2-classes-per-worker as
+its parallelism granularity, presumably reading 6-of-anything as "too many
+parallel workers for the task."
+
+Whether 2 classes/worker is genuinely worse than 1/worker depends on the
+worker layer; for plan-eval purposes we score it as wrong because it
+doesn't match the per-class-leaf shape both references prescribe. The
+deeper question — "what's the right granularity?" — is itself something
+the bench could measure with the right case design.
 
 ## Token cost
 
-~5 tokens in, ~565 tokens out per planner call. Plan-only is **dirt cheap** —
-no worker fan-out. 10 reps of both cases under both models fit in well
-under one session quota window.
+~5 tokens in, ~565-630 tokens out per planner call. Plan-only is **dirt
+cheap** — N=10 across both cases × both models is under one minute of
+wall-clock and ~$0.02 of token spend.
 
 ## Calibration implication
 
-This is the first plan-evals data point where opus and sonnet differ at the
-architect layer. The worker-level calibration finding (`docs/plan-evals.md`
-"Calibration: why sonnet workers") established that sonnet is the Goldilocks
-worker model. This result suggests the architect layer wants opus —
-consistent with the role split in `position.md`'s terminology note.
+This is the first plan-evals data point where opus and sonnet differ at
+the architect layer. The worker-tier calibration already established
+sonnet as the Goldilocks worker model (`docs/plan-evals.md` "Calibration:
+why sonnet workers"). This case suggests **architect-tier wants opus**,
+with two distinct gaps from sonnet:
+
+1. **Idiom convergence**: sonnet has variance (synthesis-pipeline, two-phase-
+   commit, occasional fanout); opus is consistent.
+2. **Decomposition discipline**: sonnet sometimes under-decomposes
+   (batches classes); opus produces the canonical leaf-per-class graph
+   every time.
+
+Both gaps are at the *architecture-quality* level, not the
+*executes-the-task* level. That's the right distinction for a plan-only
+eval to surface.
 
 ## Follow-ups
 
-1. **Bigger N for sonnet** to confirm "0/5 picks two-phase-commit" isn't
-   a small-sample artifact (likely not — every rep picked the same wrong
-   idiom — but N=10 would be cleaner).
-2. **Probe the failure mode**: when sonnet picks two-phase-commit, does its
-   generated *contract* actually pre-stock `codes.py` + `registry.py`? If
-   so, the graph is wrong but the implicit plan might still work. If not,
-   the model has structurally misallocated cross-file authority. Hand-read
-   2-3 graph.json outputs to decide.
-3. **A "designless" variant**: strip `spec.md` to pure prose intent (drop
-   the explicit file enumeration). Does opus still nail it without the
-   layout hint?
+1. **Why does sonnet batch?** Hand-read the 3 "incomplete" reps to see
+   whether it's confused about the case (3 classes vs 6), or genuinely
+   choosing 2/worker as a structural decision. (Look at reasoning fields.)
+2. **A "designless" variant**: strip `spec.md` of the explicit file
+   enumeration. Does opus still nail it without the layout hint?
+3. **Execute the two sound idioms back-to-back**: run synthesis-pipeline
+   AND two-phase-commit-with-contract-author on enum-extension at the
+   worker layer. Do both 100%? Or does one fail in practice for reasons
+   the plan-only eval can't see (e.g., contract-author has to guess all
+   the enum names ahead of time, vs. merger gets to see the worker output
+   first)? This would resolve the "which is better" question empirically.
+4. **`EXTRA_INSTRUCTION` knob** added to the runner (env var) — lets us
+   probe "what if we tell the architect to use synthesis-pipeline
+   specifically" or "what if we ban contract-author beads." Useful for
+   exploration but not the default mode.

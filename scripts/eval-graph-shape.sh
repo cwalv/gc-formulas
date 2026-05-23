@@ -138,7 +138,12 @@ Constraints:
 - Persona names: use \"worker\" for parallel implementers in fanout / synthesis-pipeline; \"merger\" for the synthesis bead; \"critic\" / \"reviewer\" for evaluator-style beads; \"contract-author\" + \"implementer\" for two-phase-commit.
 - Bead ids may be anything unique; deps reference ids.
 - Don't invent files that aren't in the starting-state tree as scope.
-"
+${EXTRA_INSTRUCTION:+
+
+# Additional constraint
+
+${EXTRA_INSTRUCTION}
+}"
 
 echo "[graph-shape] Invoking planner claude -p…" >&2
 
@@ -238,41 +243,81 @@ def topology(beads):
     return len(roots), len(sinks), max_depth, max_fan_in
 
 
-def score(graph, reference):
-    """Returns dict of per-dimension scores + overall pass."""
-    ref_idiom = reference["idiom"]
-    ref_personas = reference.get("personas", {})  # {persona: count}
-    ref_shape = reference.get("shape", {})        # {roots, sinks, max_depth, fan_in_to_sink}
-    persona_aliases = reference.get("persona_aliases", {})  # {alias: canonical}
-
+def _match_single(graph, ref_idiom, ref_personas, ref_shape, persona_aliases):
     got_idiom = (graph.get("idiom") or "").strip()
     idiom_match = got_idiom == ref_idiom
 
     beads = graph.get("beads") or []
-    # Normalize persona names through aliases.
     def canon(p): return persona_aliases.get(p, p)
     counter = collections.Counter(canon((b.get("persona") or "worker").strip()) for b in beads)
-    # Persona match: every required persona present at the expected count;
-    # extra personas are OK only if their count is 0 in the reference (i.e. they
-    # don't appear) — but we accept extras as long as required counts match.
     persona_match = all(counter.get(p, 0) == n for p, n in ref_personas.items())
 
     roots, sinks, depth, fan_in = topology(beads)
     shape_actual = {"roots": roots, "sinks": sinks, "max_depth": depth, "fan_in_to_sink": fan_in}
     shape_match = all(shape_actual.get(k) == v for k, v in ref_shape.items())
 
-    overall = idiom_match and persona_match and shape_match
     return {
         "idiom_match":   idiom_match,
         "persona_match": persona_match,
         "shape_match":   shape_match,
-        "overall_pass":  overall,
+        "all_three":     idiom_match and persona_match and shape_match,
         "got_idiom":     got_idiom,
         "got_personas":  dict(counter),
         "got_shape":     shape_actual,
-        "ref_idiom":     ref_idiom,
-        "ref_personas":  ref_personas,
-        "ref_shape":     ref_shape,
+    }
+
+
+def score(graph, reference):
+    """Score against primary reference + any alternates.
+
+    Returns:
+      overall_pass: True iff primary reference matches (strict).
+      structurally_sound: True iff primary OR any alternate matches.
+      matched_alternate: name of matched alternate (or "primary" / None).
+    """
+    persona_aliases = reference.get("persona_aliases", {})
+    primary = _match_single(
+        graph,
+        reference["idiom"],
+        reference.get("personas", {}),
+        reference.get("shape", {}),
+        persona_aliases,
+    )
+
+    matched_alt = "primary" if primary["all_three"] else None
+    alt_details = []
+    for alt in reference.get("idiom_alternates", []) or []:
+        # Each alt has its own persona_aliases override (optional).
+        alt_aliases = {**persona_aliases, **(alt.get("persona_aliases") or {})}
+        m = _match_single(
+            graph,
+            alt["idiom"],
+            alt.get("personas", {}),
+            alt.get("shape", {}),
+            alt_aliases,
+        )
+        alt_details.append({"name": alt.get("name", alt["idiom"]), **m})
+        if matched_alt is None and m["all_three"]:
+            matched_alt = alt.get("name", alt["idiom"])
+
+    structurally_sound = matched_alt is not None
+
+    return {
+        # Strict-reference fields (back-compat).
+        "idiom_match":     primary["idiom_match"],
+        "persona_match":   primary["persona_match"],
+        "shape_match":     primary["shape_match"],
+        "overall_pass":    primary["all_three"],
+        "got_idiom":       primary["got_idiom"],
+        "got_personas":    primary["got_personas"],
+        "got_shape":       primary["got_shape"],
+        "ref_idiom":       reference["idiom"],
+        "ref_personas":    reference.get("personas", {}),
+        "ref_shape":       reference.get("shape", {}),
+        # New: structural-soundness fields.
+        "structurally_sound": structurally_sound,
+        "matched_alternate":  matched_alt,
+        "alternate_details":  alt_details,
     }
 
 
@@ -285,6 +330,7 @@ if graph is None:
     sc = {
         "idiom_match": False, "persona_match": False, "shape_match": False,
         "overall_pass": False, "parse_failed": True,
+        "structurally_sound": False, "matched_alternate": None,
     }
     graph_out = {"_parse_failed": True}
 else:
@@ -339,6 +385,8 @@ result = {
     "idiom_match":     bool(sc.get("idiom_match")),
     "persona_match":   bool(sc.get("persona_match")),
     "shape_match":     bool(sc.get("shape_match")),
+    "structurally_sound": bool(sc.get("structurally_sound")),
+    "matched_alternate":  sc.get("matched_alternate"),
     "_meta": {
         "planner_exit":           int(planner_exit),
         "parser_fallback":        bool(meta.get("parser_fallback")),

@@ -176,7 +176,14 @@ def aggregate(case_id: str, pattern: str, results: list[dict]) -> dict:
             "persona_match": sum(1 for r in results if r.get("persona_match")),
             "shape_match":   sum(1 for r in results if r.get("shape_match")),
             "overall":       sum(1 for r in results if r.get("exit_code") == 0),
+            "structurally_sound": sum(1 for r in results if r.get("structurally_sound")),
         }
+        # Distribution of which reference (primary or named alternate) matched.
+        alt_counter: collections.Counter[str] = collections.Counter()
+        for r in results:
+            m = r.get("matched_alternate")
+            alt_counter[m if m else "__no_match__"] += 1
+        agg["matched_alternates"] = dict(sorted(alt_counter.items(), key=lambda kv: (-kv[1], kv[0])))
 
     if pattern == "planner":
         counter: collections.Counter[str] = collections.Counter()
