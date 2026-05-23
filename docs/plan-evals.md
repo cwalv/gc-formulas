@@ -199,23 +199,27 @@ Sonnet sits at the Goldilocks tier (independently confirmed in Gemini's review �
 - [`evals/validator-suite/RESULTS.md`](../evals/validator-suite/RESULTS.md) — case-level write-up.
 - [`choreography-idioms.md`](choreography-idioms.md) — pattern templates as graph shapes (the canonical library E1 would draw from).
 
-## What the bench actually tests (orchestrator vs choreographer)
+## What the bench actually tests (architect vs choreographer vs worker)
 
-The `Feedback (gemini)` section below distinguishes **orchestration** (a single conductor reading from a fixed score) from **choreography** (skilled performers reading the room and adapting). `choreography-idioms.md` operationalizes that distinction as graph primitives. Applied to the Phase A / Phase B / Phase C model:
+The `Feedback (gemini)` section below distinguishes **orchestration** (a single conductor reading from a fixed score) from **choreography** (skilled performers + a choreographer reading the room and adapting). `choreography-idioms.md` operationalizes that distinction as graph primitives. Three roles emerge from the Phase A / Phase B / Phase C model, not two:
 
-| Phase | Direction | Model role | What the bench tests today |
+| Role | Phase | What they do | What the bench tests today |
 |---|---|---|---|
-| A → B (design → graph) | Top-down | **Orchestrator** — the TL produces a coherent decomposition from a design doc | Partial — `eval-planner.sh` tests "pick a pattern given a case," which is a slice of B |
-| B → C (graph → execution) | Distributed | **Choreographer** — workers read the graph, claim, react, escalate, spawn new beads | **Not tested.** Our "workers" are bash-parallelized `claude -p` subprocesses on a shared filesystem, not bd-graph participants. They can't read each other's beads, can't escalate, can't spawn new beads dynamically. |
+| **Architect** | A → B (design → graph) | One-shot decomposition from a design doc into the initial bead graph. Static, top-down. | Partial — `eval-planner.sh` tests "pick a pattern given a case," which is a slice of the decomposition decision |
+| **Choreographer** | B onward (graph evolves during execution) | Centralized but **reactive**: observes the graph + worker close signals (status, reasons, notes), modifies the graph in response (sling, spawn child beads, re-route, escalate). Like a foreman. | **Not tested.** Our bench has no role that observes execution and reshapes the graph mid-run |
+| **Worker** | C (do the leaf work) | Stays focused on its own bead. Signals state via bead close reason, status, and notes. Does NOT read other beads or spawn children itself. | Partial — workers do leaf work, but they're bash-parallelized `claude -p` subprocesses on a shared filesystem, not bd-graph participants. Close-signaling and the choreographer's reaction to those signals are absent |
 
-This is the honest gap. The current bench's "patterns" (fanout / sectioning / orchworkers) are **static decomposition followed by isolated parallel execution** — neither phase rigorously tested. The pattern-task-fit findings above survive any reframing (they're real measurements), but they're testing something weaker than `position.md`'s claims.
+This is the honest gap. The current bench's "patterns" (fanout / sectioning / orchworkers) are **static decomposition followed by isolated parallel execution** — only worker work is partially tested; architect and choreographer roles aren't tested at all. The pattern-task-fit findings above survive any reframing (they're real measurements), but they're testing something weaker than `position.md`'s claims.
 
 What's missing:
 
-- **Phase B (orchestrator) eval**: score the *graph shape* the TL produces from a design doc. Cheap (no execution, just plan-only scoring). Tests "did the model decompose well." Currently missing.
-- **Phase C (choreographer) eval**: workers that read other beads, claim work, escalate to TL when blocked, spawn child beads dynamically. Requires substrate (real bd-graph primitives, not bash). Equivalent to milestone C.2 — per-orchestrator runners through bd / gc / ntm. This is the bridge from "bench-toys" to actually testing the position's claim that orchestration emerges from substrate primitives.
+- **Architect (Phase B) eval**: score the *graph shape* the architect persona produces from a design doc. Cheap (no execution, just plan-only scoring). Tests "did the model decompose well." Currently missing.
+- **Choreographer (Phase B-onward) eval**: a choreographer persona observes worker close signals from a partial / under-specified graph and modifies the graph in response. Scored on whether the work completes correctly *and* whether the choreographer's graph mutations are sensible. Requires substrate (real bd-graph primitives, not bash) — equivalent to milestone C.2.
+- **Worker-as-bd-graph-participant**: workers should signal via bead close reason, not via filesystem side-effects. Also requires substrate. Tests "do narrow personas stay narrow + signal usefully."
 
-Implication: **C.2 (per-orchestrator runners) is more central than the original "scope only" framing suggested.** It's not "later cleanup"; it's the substrate prerequisite for testing the choreographer half of the architecture at all. See `per-orchestrator-runners.md` for the design fragment.
+Implication: **C.2 (per-orchestrator runners) is more central than the original "scope only" framing suggested.** It's not "later cleanup"; it's the substrate prerequisite for testing the choreographer role at all. See `per-orchestrator-runners.md` for the design fragment.
+
+**Scale note**: a single choreographer may itself fan out into multiple choreographers each watching a sub-graph for large bead-graphs. That's orthogonal to the architect/worker distinction — it's the choreographer role parallelized, with sub-choreographers signaling to a top-level choreographer via the same bead-close mechanics workers use. Worth its own eval axis when corpus has cases big enough to motivate it; not in scope for the first cut.
 
 ## Milestones
 
