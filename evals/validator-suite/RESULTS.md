@@ -13,52 +13,65 @@ Second plan-eval data point. Three patterns compared on a case designed at the w
 
 | Pattern | Median wall (s) | Mean tokens out | All-passed | Notes |
 |---|---|---|---|---|
-| Naive fanout (broken impl) | **25.7** | 4850 | **0/10** | only ~11 of 20 visible tests collected per run — workers corrupted shared imports |
-| **Orchworkers** | **99.5** | 12222 | **10/10** | **2× faster than ralph at same quality** |
+| Naive fanout (after brief fix, plan-evals A) | **72.2** | 13341 | **10/10** | brief bug was the entire previous failure; see below |
+| Naive fanout (original 2026-05-12 run, broken brief) | 25.7 | 4850 | 0/10 | superseded — workers were told "add a cancel() method" on validator files |
+| **Orchworkers** | **99.5** | 12222 | **10/10** | from the original 2026-05-12 run; not re-run under plan-evals A |
 | Ralph (goal-check loop) | 197.6 | 12485 | 10/10 | one-shot at iter 1 in all runs; slowest, correct |
 
 ## Headline finding
 
-**Orchestrator-workers wins decisively on this case.** Half ralph's wall-clock for identical quality (100% pass). The merge step adds negligible token cost (12.2K vs 12.5K mean tokens out) but cuts wall-clock in half by parallelizing the implementation phase.
+**The 0/10 naive-fanout result was a brief bug, not a structural failure of the pattern.**
+After the plan-evals A fix (`scripts/eval-fanout.sh` brief now reads from `spec.md` instead of hard-coding "add a cancel() method to ${ENTITY_REL}" plus an `event_bus.py` reference borrowed from the cancel-method case), N=10 naive fanout passes 10/10 visible AND 10/10 hidden AND 10/10 existing-tests on validator-suite. The previous "workers corrupted shared imports" narrative is overturned — none of the 10 reruns touched `base.py`; every worker stayed strictly within its assigned file. The structural-collapse story was real for the *broken brief* (workers given a nonsense task improvised in cross-cutting ways), but **does not hold under a coherent task-scoped brief**.
 
-Naive fanout's 0/10 result needs honest framing: it's not "the fanout pattern fails" — my `eval-fanout.sh` is a broken-by-design implementation that does concurrent unsynchronized writes to a shared worktree, with no isolation and no merge. It happened to work on cancel-method (where pieces are truly file-isolated and there's no shared state to corrupt) but fails on validator-suite (where workers modify shared `base.py`, `registry.py`, and the `Reason` enum without coordination). The result demonstrates *what happens with shared-state concurrent writes*, not *what the Anthropic "sectioning" pattern does* (which requires either isolation OR merge).
+Wall-clock went from a (worthless) 25.7s median to a real 72.2s median, because workers are now actually doing the validator work. Token output went from 4850 → 13341 for the same reason. The honest comparison:
 
-## Headline finding
-
-**The wrong pattern for the task produces broken results, not just slow results.**
-
-Fan-out was 6.5× faster but produced output where only 11 of 20 visible tests could even be collected — workers modified shared modules (`base.py`, `registry.py`, the `Reason` enum) in incompatible ways that nobody reconciled. Ralph was slower but correct: 20/20 visible passing.
-
-This is the empirical case for two related claims in `docs/position.md` and `docs/principles.md`:
-
-- **Patterns aren't interchangeable.** Fan-out's wall-clock win on cancel-method (2.9× speedup, 100% quality) is *task-specific*. On validator-suite, fan-out's wall-clock win comes with a quality collapse.
-- **A merge / reconciliation step is what makes orch-workers different from naive fanout.** Workers can't see each other's outputs; cross-cutting concerns need a final LLM call to reconcile. Our `eval-fanout.sh` is the degenerate "no merge" version. The validation-pack's scenario 05 has it right via the treehugger persona.
+- **Naive fanout (fixed) vs orchworkers:** 72.2s vs 99.5s — naive fanout is ~27% faster on this case. The earlier "orch-workers wins decisively" claim was relative to a broken baseline and needs to be re-run with the new fanout numbers before drawing conclusions about merge-step value.
+- **Naive fanout (fixed) vs ralph:** 72.2s vs 197.6s — fanout is 2.7× faster at identical quality (10/10).
 
 ## Implication for the planner
 
-Per `docs/position.md`'s claim about model-as-orchestrator: the planner has to *recognize when fan-out fits the task* before dispatching. Inputs to that decision:
+This still says **pattern choice matters**, but the matrix is different from what the 2026-05-12 run suggested. Naive fanout actually *can* solve a multi-file task with shared infrastructure (ABC, registry, enum) *as long as workers are told to stay in their assigned file*. The shared `base.py` and `Reason` enum are not implicitly corrupted by parallel workers; they're only corrupted if the brief invites improvisation.
 
-- Are the pieces truly independent? (Looking at the starting-state structure — does the dir have shared modules like a registry or an ABC?)
-- If pieces share state, does the task need orch-workers (with merge) instead of naive fanout?
-- Or could the task structurally be inappropriate for fan-out at all, in which case ralph or eval-optimizer wins?
+What we don't yet know:
+- Does naive fanout's win hold across other multi-file shared-state tasks, or is validator-suite "easy" because each validator's algorithm is genuinely independent (Luhn, mod-97, etc.) once the contract is in place?
+- Does the orchworkers merge step add measurable value here, or is it overhead (extra 27s wall-clock, ~minus 1K tokens) for no quality gain?
+- What's the boundary case where coordination *is* required and naive fanout fails for a structural reason rather than a brief reason?
 
-Hardcoding the pattern (as plan-evals M1 currently does) bypasses this decision. The natural next milestone is **pattern selection as an eval axis** — the planner is given the task + a menu of patterns and picks one; we score the choice.
+These are the questions the next set of cases (plan-evals B/C/D) needs to surface.
 
-## Pattern-task fit matrix (preliminary, based on these two cases)
+## Pattern-task fit matrix (updated post plan-evals A)
 
 | Pattern | cancel-method | validator-suite |
 |---|---|---|
 | Ralph | wins on quality (one-shot) | wins on quality (one-shot, slow) |
-| Naive fanout | wins on wall-clock + quality tie | wins on wall-clock, **loses on quality** |
-| Orchestrator-workers (TBD) | should match fanout (no merge needed) | should match ralph on quality, beat ralph on wall-clock |
+| Naive fanout | wins on wall-clock + quality tie | **wins on wall-clock + quality tie** (after brief fix) |
+| Orchestrator-workers | should match fanout (no merge needed) | matches on quality; **adds ~27s vs naive fanout** for unclear gain on this case |
 
-## Follow-ups surfaced
+## Follow-ups surfaced (post plan-evals A)
 
-1. **Naive fanout's failure mode is structural, not a bug.** Workers blind to each other can't maintain cross-cutting invariants. This is a property of the pattern, not the validator-suite case.
-2. **Need `scripts/eval-orchworkers.sh`** with a merge step. In progress.
-3. **`registry.py` should be excluded from validator-suite/fanout.json's worker list.** It's infrastructure, not a validator. Cosmetic fix; the empirical signal stands without it (the underlying mismatch is `base.py` + `Reason` enum).
-4. **Pattern selection as a third eval axis.** Not just "given pattern X, how does it score?" but "given the task, which pattern should the planner choose?" — see Implication section.
-5. **Hidden tests not scored yet.** The scorer doesn't run `hidden-tests/`. Once it does, we'd see whether ralph's one-shot misses hidden-test edge cases that orch-workers (with thoughtful per-worker context) might catch.
+1. **Re-run orchworkers with the same brief fix** to get an apples-to-apples comparison. The orchworkers brief is now task-generic (commit ae01123), but its N=10 numbers above are from the prior run. Worth verifying nothing changed at orchworkers's quality/wall-clock with the new brief.
+2. **Validator-suite may no longer be the right "shared-state stress test."** It empirically doesn't stress shared state under a correct brief. plan-evals's pattern-fit ladder needs a case that *actually* requires worker coordination (cross-cutting interface changes that can't be done with per-file scope), or the matrix above is misleading.
+3. **Hidden tests are now scored** (commit c2e7c7f) and naive fanout passes 26/26 in all 10 runs — same as visible. The pattern doesn't lose quality at the edges either.
+4. **Per-worker token tracking added** (plan-evals A): each result JSON now includes a `workers: [{file, tokens_in, tokens_out}, ...]` array. Lets us verify claim 3 in `docs/position.md` (short worker contracts) by observing per-file input-token counts. The numbers from this re-run hold: per-worker `tokens_in` was 8-16 tokens across all workers (the spec text is what dominates; the wrapper brief is small).
+
+## Representative per-worker tokens
+
+One representative `workers` array from a passing run
+(`results-fanout-validator-suite-20260522-183859-10.json`):
+
+```json
+[
+  {"file": "credit_card.py", "tokens_in":  8, "tokens_out":  639},
+  {"file": "email.py",       "tokens_in": 15, "tokens_out": 3084},
+  {"file": "iban.py",        "tokens_in":  8, "tokens_out": 1271},
+  {"file": "isbn.py",        "tokens_in":  8, "tokens_out": 1097},
+  {"file": "phone.py",       "tokens_in":  8, "tokens_out": 1185},
+  {"file": "semver.py",      "tokens_in":  8, "tokens_out": 1790},
+  {"file": "url.py",         "tokens_in": 16, "tokens_out": 3827}
+]
+```
+
+`tokens_in` here is the prompt cost *for the current model turn*, not including cache hits or the spec text bundled into the system prompt — so it's not a measure of contract length, just of incremental turn cost. The wider per-worker visibility is the additive value: we can now see per-file output-token spend and reason about which files are doing the most work.
 
 ## Reproducing
 
@@ -70,4 +83,4 @@ python3 scripts/eval-driver.py --case validator-suite --pattern fanout      --n 
 python3 scripts/eval-driver.py --case validator-suite --pattern orchworkers --n 10 --output-dir /tmp/eval-runs/vs-repro
 ```
 
-Approximately 35 min wall-clock for ralph N=10, 5 min for fanout, 18 min for orchworkers (or ~35 min total if run in parallel — ralph dominates). Token budget ~$20-25 at opus pricing.
+Approximately 35 min wall-clock for ralph N=10, 12 min for fanout (post-fix; was 5 min on the broken brief), 18 min for orchworkers (or ~35 min total if run in parallel — ralph dominates). Token budget ~$20-25 at opus pricing.
