@@ -237,3 +237,16 @@ Instead of artificially inflating the *logical complexity* of the synthetic task
 3. **Tunnel Vision ("Flaky Heuristic" tasks):** E.g., fixing a race condition. A single model often loops on its own assumptions. Orchestration wins via the Evaluator-Optimizer pattern, breaking the loop with a fresh context critique.
 
 By designing tasks that attack these structural limits, the eval demonstrates that orchestration scales frontier model capabilities beyond the physics of a single prompt.
+
+#### Applying Context Physics to the `cancel-method` Eval
+The benchmark results for the existing `cancel-method` scenario (N=5 entities) perfectly illustrate the need to attack context physics. Because N=5 is too small to trigger attention decay in a frontier model, the single-agent baseline ("Ralph") achieved a 15/15 pass rate and matched the fan-out pattern in quality. The only differentiation was in wall-clock time.
+
+To evolve this scenario to test orchestration quality (not just speed), you must push it past the model's physical limits:
+- **Increase Volume:** Scale the refactor from 5 entities to 50 entities. A single Ralph prompt will hit output token limits or start hallucinating `// ... unchanged` omissions by file 20. The Fan-Out pattern will continue to execute perfectly.
+- **Introduce Cross-Boundary Dependencies:** Instead of 5 independent entities, require that downstream consumers of the `EventBus` (e.g., an email notification worker or a database migration script) also be updated to handle the new `"cancelled"` event payload. Ralph will struggle to hold both the producer logic and consumer logic in its head simultaneously without bleeding context.
+
+### The Calibration Goldilocks Problem
+When selecting the worker model for these evals, you face a conflicting set of goals. The goal is to prove that "orchestration is a force-multiplier on capable models." However, this creates a calibration trap:
+- **The Case Against Haiku:** If you use a weak model (Haiku) to force failures in the baseline, you end up measuring the wrong thing. If the workers produce nonsense, orchestration's coordination role is moot because there's nothing coherent to coordinate. It proves a smart manager can babysit interns, not that the architecture works for experts.
+- **The Case Against Opus:** If you use the absolute smartest frontier model (Opus), it will trivially one-shot the scenario (as seen in the `cancel-method` results). If Ralph wins by default, no force-multiplication is visible, and the eval merely proves "Opus is smart," obscuring the value of the orchestration layer.
+- **The Sonnet Sweet Spot:** Sonnet represents the "Goldilocks" tier. It is smart enough to generate coherent, good-faith attempts (avoiding the Haiku trap), but just bounded enough by context physics that it will stumble on massive, cross-cutting tasks (avoiding the Opus trap). This is exactly where orchestration earns its keep: providing the cognitive isolation and structure needed to help highly capable, but physically bounded, workers succeed.
