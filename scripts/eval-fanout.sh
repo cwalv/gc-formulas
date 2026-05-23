@@ -102,29 +102,49 @@ echo "[fanout] Copying starting-state → ${WORKTREE}" >&2
 cp -r "${STARTING_STATE}/." "${WORKTREE}/"
 
 # ---------------------------------------------------------------------------
-# Discover entity files (skip event_bus.py and __init__.py)
+# Discover files to fan out over.
+#
+# Cases declare their fan-out target via <case>/fanout.json:
+#   {"dir": "validators", "exclude": ["base.py", "__init__.py"]}
+#
+# For backward compatibility, if fanout.json is absent we default to the
+# cancel-method-shaped layout (dir=entities, exclude=event_bus.py + __init__.py).
 # ---------------------------------------------------------------------------
-ENTITIES_DIR="${WORKTREE}/entities"
+FANOUT_CONFIG="${CASE_DIR}/fanout.json"
+if [[ -f "$FANOUT_CONFIG" ]]; then
+    FANOUT_DIR_NAME="$(python3 -c "import json; print(json.load(open('${FANOUT_CONFIG}'))['dir'])")"
+    FANOUT_EXCLUDE_LIST="$(python3 -c "import json; print(' '.join(json.load(open('${FANOUT_CONFIG}'))['exclude']))")"
+else
+    FANOUT_DIR_NAME="entities"
+    FANOUT_EXCLUDE_LIST="event_bus.py __init__.py"
+fi
+
+ENTITIES_DIR="${WORKTREE}/${FANOUT_DIR_NAME}"
 if [[ ! -d "$ENTITIES_DIR" ]]; then
-    echo "entities/ not found in worktree: ${ENTITIES_DIR}" >&2
+    echo "fan-out target dir not found in worktree: ${ENTITIES_DIR}" >&2
     exit 1
 fi
 
 ENTITY_FILES=()
 while IFS= read -r -d '' f; do
     base="$(basename "$f")"
-    if [[ "$base" == "event_bus.py" || "$base" == "__init__.py" ]]; then
-        continue
-    fi
+    skip=false
+    for excl in $FANOUT_EXCLUDE_LIST; do
+        if [[ "$base" == "$excl" ]]; then
+            skip=true
+            break
+        fi
+    done
+    [[ "$skip" == true ]] && continue
     ENTITY_FILES+=("$f")
 done < <(find "${ENTITIES_DIR}" -maxdepth 1 -name "*.py" -print0 | sort -z)
 
 if [[ ${#ENTITY_FILES[@]} -eq 0 ]]; then
-    echo "No entity files found in: ${ENTITIES_DIR}" >&2
+    echo "No fan-out target files found in: ${ENTITIES_DIR}" >&2
     exit 1
 fi
 
-echo "[fanout] Found ${#ENTITY_FILES[@]} entity file(s): ${ENTITY_FILES[*]}" >&2
+echo "[fanout] Fan-out target: ${FANOUT_DIR_NAME}/ — found ${#ENTITY_FILES[@]} file(s): ${ENTITY_FILES[*]}" >&2
 
 # ---------------------------------------------------------------------------
 # Read spec content once
