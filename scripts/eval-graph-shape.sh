@@ -14,6 +14,16 @@
 # Usage:
 #   bash scripts/eval-graph-shape.sh <case-id> [--output-dir DIR] [--run-id ID]
 #
+# Env vars (probe knobs — not the default mode):
+#   PLANNER_MODEL          — override planner model (default from eval-config.sh).
+#   SPEC_FILE_OVERRIDE     — path to a design doc to use instead of evals/<case>/spec.md.
+#                            Used to test "designless" variants where the layout hint is
+#                            stripped from the architect's input (fo-d5fh9 follow-up).
+#   EXTRA_INSTRUCTION      — string appended to the planner brief as an "Additional
+#                            constraint" section. Used to probe whether sonnet's
+#                            structural biases (over-coordination, batching) are
+#                            correctable via explicit instruction.
+#
 # Outputs:
 #   <output-dir>/results-<run-id>.json   — scored result JSON (driver-compatible)
 #   <output-dir>/<run-id>/planner.out    — raw planner claude JSON

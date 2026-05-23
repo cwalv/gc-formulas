@@ -23,6 +23,7 @@
 # Pattern menu (kept in sync with the runners that actually exist):
 #   - ralph        — single agent in a loop until tests pass
 #   - fanout       — N parallel agents writing to a shared worktree, no coordination
+#   - sectioning   — N parallel agents in isolated copies + deterministic file-scoped collation
 #   - orchworkers  — N parallel agents, then an LLM merge reconciles cross-cutting concerns
 #
 # Result JSON schema (per fo-6i6mt.2 acceptance):
@@ -175,15 +176,16 @@ Here are your pattern options:
 
 - ralph: single agent in a loop until tests pass.
 - fanout: N parallel agents writing to a shared worktree, no coordination.
+- sectioning: N parallel agents each in an isolated copy of the worktree; a deterministic file-scoped collator merges their work afterward (no LLM in the merge).
 - orchworkers: N parallel agents each handling one file, then an LLM merge reconciles cross-cutting concerns.
 
-Pick exactly one of {ralph, fanout, orchworkers} and explain in 1-2 sentences.
+Pick exactly one of {ralph, fanout, sectioning, orchworkers} and explain in 1-2 sentences.
 
 Output ONLY a single JSON object on stdout, with no surrounding prose, no
 markdown fences, no commentary. The object must have exactly two string
 fields:
 
-  {\"pattern\": \"ralph\" | \"fanout\" | \"orchworkers\", \"reasoning\": \"...\"}"
+  {\"pattern\": \"ralph\" | \"fanout\" | \"sectioning\" | \"orchworkers\", \"reasoning\": \"...\"}"
 
 echo "[planner] Invoking planner claude -p…" >&2
 
@@ -212,7 +214,7 @@ fi
 python3 - "${PLANNER_OUT}" "${PLANNER_PARSED}" <<'PYEOF'
 import json, sys
 
-VALID_PATTERNS = {"ralph", "fanout", "orchworkers"}
+VALID_PATTERNS = {"ralph", "fanout", "sectioning", "orchworkers"}
 PLANNER_OUT, PLANNER_PARSED = sys.argv[1], sys.argv[2]
 
 

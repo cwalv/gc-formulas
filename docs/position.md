@@ -18,7 +18,7 @@ The position implies these specific claims; each is a falsifiable proposition.
 
 2. **Patterns compose without runtime infrastructure.** A step in a parent formula can pour a child wisp; the parent's await blocks on the child's terminal close. The bead graph already does the dependency math. No workflow engine needed for composition.
 
-3. **Worker contracts stay short as workflows get richer.** As the architecture handles more, the persona prompt shouldn't grow linearly. Track line counts over time. If new features keep adding to the prompt, the protocol is leaking; if line count is flat or shrinks, the position is holding.
+3. **Worker contracts stay short as workflows get richer.** As the architecture handles more, the persona prompt shouldn't grow linearly. Track line counts over time. If new features keep adding to the prompt, the protocol is leaking; if line count is flat or shrinks, the position is holding. **Measurement (2026-05-23, plan-evals fo-vgam1):** worker contracts measured via `cache_creation_input_tokens` (not per-turn `tokens_in`, which is the API billing slice). Baseline on `enum-extension` under fanout/sonnet: per-worker contract length 11K-29K tokens. Variance comes from how much the worker explores during the task; the *brief* itself is small. Future tracking should watch the *brief* + *system-prompt* portion holding flat as more substrate features land.
 
 4. **It scales.** N concurrent workflows draining a backlog work without an orchestration layer above the substrate. Worker pools, dispatch, retry are all substrate-level, not runtime concerns.
 
