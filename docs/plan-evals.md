@@ -205,16 +205,56 @@ Replay 5-10 real beads from foundations history (refinery failures, formula auth
 
 After A-C + D2, rewrite `docs/position.md` as a grounded claim. Cite the eval data. Make the falsifiable version of "model-as-orchestrator, with these patterns, on these substrates, at these costs, with these failure modes." This is the deliverable — the bench was always evidence; the position is what the evidence supports.
 
+### E — Parallel tracks (not stretch, different concerns from D)
+
+The D-tier is about evidence (more cases, real-world cases, position cash-out). E1-E5 are about *different concerns the bench needs to address*. They can run in parallel with the D-tier; sequence by what each one unlocks.
+
+### E1 — Library-driven planner
+
+Variant of B's `eval-planner.sh`: same planner LLM, but given a markdown library of canonical patterns + when each one wins (curated; not neutral one-liners). Compare to the freeform planner from B.
+
+More relevant after B's finding that opus defaults to orchworkers regardless of case shape — a library that says "when pieces are file-isolated with no shared invariants, prefer fanout" might break that bias. Tests `position.md` claim 2 directly: does a typed library improve planner output?
+
+Result fields: same as planner runs + `library_used` (string) + the library markdown file as an artifact.
+
+### E2 — Pattern matrix expansion
+
+Add the patterns we haven't tried:
+
+- **Voting** (`scripts/eval-voting.sh`) — N parallel workers each solve the whole task; an evaluator LLM picks the best, OR majority vote on shared invariants. Differentiates on quality (variance reduction), not wall-clock.
+- **Evaluator-optimizer** (`scripts/eval-optimizer.sh`) — single worker iterates; an evaluator LLM critiques each round. Differentiates on quality (iterative refinement). Captures round-over-round delta as a result metric.
+
+Each enables the corresponding row in the "Pattern-specific win conditions" table to have measured data instead of hypotheses.
+
+### E3 — Composition
+
+Author a case that REQUIRES composition — a step in a parent formula instantiates a child wisp. Tests `position.md`'s claim that "patterns compose without runtime infrastructure."
+
+Concrete shape: a task where one of the worker beads in orchworkers itself fans out (e.g., the merge step is itself orchworkers'd: per-file merge sub-workers + meta-merge). Or where the planner's chosen pattern is "ralph + invoke a sub-orchworkers when blocked."
+
+Hardest milestone — requires either substrate refactor (bd formula composition) or careful host-side scripting. Schedule after E1+E2 because composition's value is greatest when the patterns being composed are well-characterized.
+
+### E4 — Case authoring scaffold
+
+`scripts/add-eval-case.sh` — scaffolds a new case directory with the canonical layout. Plus `docs/case-authoring.md` documenting "what makes a good case" + an actionable companion to the "What makes a good goal" section above.
+
+Becomes infrastructure once D1 (more synthetic cases) + post-A calibration cases (e.g., enum-extension) scale beyond 2-3. Cheap to build, high leverage. Should probably happen in parallel with D1's first 1-2 new cases.
+
+### E5 — Trend tracking
+
+Make the bench load-bearing. Scheduled or CI-integrated runs across model versions; persist results to a versioned store; simple trend report (pass rate by model, by pattern, by case, over time).
+
+Definition of done: trend visible across at least 3 model versions; regressions surface in the report. Needs E4 in place because corpus growth is the bottleneck otherwise.
+
 ### Stretch (deferred)
 
 - **Haiku-worker axis.** Re-run cases with haiku-as-worker to test "does orchestration close the capability gap." Was the original M3-era framing; deferred because the operationally relevant tier today is opus.
-- **Voting, evaluator-optimizer, prompt-chaining** patterns added to the matrix.
 - **Cross-model orchestration** (opus orchestrating sonnet/haiku workers — is the tier relationship load-bearing?).
 - **Persistent multi-session work** (current evals are one-shot; real work has handoffs).
 - **Substrate-failure-mode evals** (dolt flake mid-run, supervisor restart, etc.).
-- **Library-driven planner** — same planner LLM but given a markdown library of canonical workflows. Compare to freeform planner. Tests `position.md` claim 2 directly.
 - **Plan-only / fake-worker eval** for cheap iteration on planning logic without LLM execution cost.
-- **Case authoring scaffold** (`scripts/add-eval-case.sh`) once corpus expansion is the bottleneck.
+- **Prompt-chaining pattern** added to the matrix (E2 covers voting + eval-optimizer; chaining is a third).
+- **Worker-driver swap (ntm via tmux).** `claude -p` bills against the API; plumbing the eval scripts to optionally drive workers through `ntm` + tmux would use the Claude Code subscription model instead. Eval logic doesn't change, only the worker invocation backend. Low-priority follow-up; partial overlap with C.2 (per-orchestrator runners) but separable — C.2 is about substrate-as-orchestrator, this is about substrate-as-worker-driver.
 - **SWE-bench Lite integration** — 20-30 cases at the right complexity tier; lets us compare to research-community single-agent baselines.
 
 ## Open questions
