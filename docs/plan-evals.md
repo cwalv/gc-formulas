@@ -194,6 +194,15 @@ Three cases authored, all run under sonnet workers + opus planner / merge:
 
 5. **A historical 0/10 validator-suite naive-fanout result was a brief-bug artifact** (cancel-method-specific brief was hardcoded). Fixed in milestone A; the corrected re-run is 10/10 at 83.4s. The "naive fanout fails on shared state" narrative survives — but only via `enum-extension`, where the failure is intrinsic to the pattern, not the brief.
 
+6. **Architect-quality tiers separately from worker-quality** (graph-shape eval, fo-d5fh9). Opus produces structurally-sound graphs 10/10 on both seeded cases; sonnet 6/10 on shared-state cases and 0/10 on embarrassingly-parallel cases. Sonnet's two failure modes — under-decomposing the shared-state case (batches classes) and over-structuring the embarrassingly-parallel one (adds unneeded coordinator) — are oppositely signed but both reach for *more aggregation than the case wants*. Architect-tier wants opus; the worker-tier Goldilocks finding (sonnet) doesn't transfer up the role stack.
+
+7. **Architect quality is capability × prompt-quality** (graph-shape designless variants). Stripping the file-layout enumeration from `spec.md` drops opus from 10/10 to 3/5 on enum-extension and 10/10 to 2/5 on validator-suite. The layout block was doing two distinct things, both load-bearing: surfacing shared infrastructure (so the architect knows what's NOT a per-leaf file) and bounding worker scope (which files are in scope for fan-out). "Files this work will touch" bullets in real design docs aren't decoration — they're architect signal.
+
+8. **The choreography idioms library defines the architect's solution space.** Probing with three library variants (full / half / stripped) revealed two distinct library effects:
+   - **Enumeration is a hard constraint for both tiers.** Stripped-library on `enum-extension` (where fanout is structurally unsound) produced 5/5 fanout from both opus AND sonnet — neither went off-library to add a contract-author bead. Both pick from what's offered; neither invents shapes outside the menu.
+   - **Default-shifting is tier-dependent.** Sonnet's "add a coordinator" bias on validator-suite scales with the number of coordinated idioms offered: 0/10 sound (full library) → 3/5 (half library, 2 idioms) → 5/5 (stripped library, fanout only). Opus is library-default-insensitive (5/5 on every variant).
+   - **Practical implication:** per-case library curation is the path to reliable sonnet-tier architect quality. A pre-routing step (this case has shared state → show synth-pipe; this case doesn't → show fanout only) lands sonnet at 5/5 + 5/5; freeform doesn't. Library curation is architecture work, not decoration.
+
 ### Implication for the planner
 
 Pattern selection is the load-bearing decision *only on shared-state-forcing cases*. The planner needs to:
