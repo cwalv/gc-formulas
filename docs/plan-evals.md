@@ -86,11 +86,11 @@ Each case run multiple times (5-10) to get distributions, not single points.
 
 Observed cache spend per pattern (`enum-extension`, sonnet workers, single-run smoke):
 
-| Pattern | per-turn tokens_in | cache_creation (contract length) | cache_read (re-use volume) | Notes |
-|---|---|---|---|---|
-| graph-shape (planner-only) | 5 | 14K | 17K | Pure planning call. cache_creation = idioms + spec + tree. |
-| fanout (6 workers) | 77 | **116K** | 1.8M | 19K cache_create per worker; 300K cache_read per worker. |
-| orchworkers (6 workers + 1 merge) | 142 | **178K** | 4.1M | 32K cache_create per worker (workers iterate more) + 36K cache_create for merge; cache_read dominated by worker turns. |
+| Pattern | N | per-turn tokens_in | median cache_creation | median cache_read | Notes |
+|---|---|---|---|---|---|
+| graph-shape (planner-only) | 10 each model | 5 | 14K | 17K | Pure planning call. cache_creation = idioms + spec + tree. |
+| fanout (6 workers) | 1 (smoke) | 77 | 116K | 1.8M | 19K cache_create per worker; 300K cache_read per worker. |
+| orchworkers (6 workers + 1 merge) | 5 (fo-j6hwm) | 142 | **206K** | **4.9M** | 32K cache_create per worker (workers iterate more) + 36K cache_create for merge; cache_read dominated by worker turns. |
 
 Useful framing: `cache_creation` is the **first-time** size of the prompt-cache prefix (effectively "what fit into the context window"). `cache_read` is **how many times** the cached prefix got re-used across turns — a multiplier on contract length. Per-turn `tokens_in` of 77 vs cache_creation of 116K is a ~1500× gap on fanout; orchworkers' multi-iteration workers stretch the cache_read-to-cache_creation ratio further (4.1M / 178K ≈ 23×).
 
