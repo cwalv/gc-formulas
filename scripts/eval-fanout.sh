@@ -213,6 +213,11 @@ TOKENS_PARTIAL=0   # flag: 1 if any agent didn't surface tokens
 OVERALL_EXIT=0
 WORKER_MODEL=""
 
+# Per-worker token records written as JSONL; assembled into the result JSON's
+# `workers` array. Each line: {"file": "...", "tokens_in": N, "tokens_out": N}.
+WORKERS_JSONL="${AGENT_TMP}/workers.jsonl"
+: > "${WORKERS_JSONL}"
+
 for PID in "${PIDS[@]}"; do
     ENTITY_BASENAME="${PID_TO_FILE[$PID]}"
     AGENT_OUT="${PID_TO_OUT[$PID]}"
@@ -224,6 +229,11 @@ for PID in "${PIDS[@]}"; do
         OVERALL_EXIT=$AGENT_EXIT
         echo "[fanout] Agent for ${ENTITY_BASENAME} exited with code ${AGENT_EXIT}" >&2
     fi
+
+    # Per-worker tokens default to 0 when parsing fails; we record an entry
+    # for every worker so the workers array is parallel to ENTITY_FILES.
+    AGENT_IN_N=0
+    AGENT_OUT_N=0
 
     # Try to parse token counts and worker_model from JSON output
     if [[ -f "${AGENT_OUT}" ]] && command -v python3 &>/dev/null; then
@@ -248,11 +258,13 @@ except Exception:
 " 2>/dev/null)"
 
         if [[ -n "$AGENT_IN" && "$AGENT_IN" =~ ^[0-9]+$ ]]; then
+            AGENT_IN_N="$AGENT_IN"
             TOTAL_TOKENS_IN=$((TOTAL_TOKENS_IN + AGENT_IN))
         else
             TOKENS_PARTIAL=1
         fi
         if [[ -n "$AGENT_OUT_TOK" && "$AGENT_OUT_TOK" =~ ^[0-9]+$ ]]; then
+            AGENT_OUT_N="$AGENT_OUT_TOK"
             TOTAL_TOKENS_OUT=$((TOTAL_TOKENS_OUT + AGENT_OUT_TOK))
         else
             TOKENS_PARTIAL=1
@@ -277,6 +289,16 @@ except Exception:
     else
         TOKENS_PARTIAL=1
     fi
+
+    # Append per-worker record (json-safe via python).
+    python3 -c "
+import json
+print(json.dumps({
+    'file': '${ENTITY_BASENAME}',
+    'tokens_in': ${AGENT_IN_N},
+    'tokens_out': ${AGENT_OUT_N},
+}))
+" >> "${WORKERS_JSONL}"
 done
 
 # ---------------------------------------------------------------------------
@@ -325,6 +347,17 @@ import json, sys
 tokens_partial = ${TOKENS_PARTIAL} == 1
 tokens_note = "partial (some agents did not surface token counts)" if tokens_partial else "complete"
 
+# Read per-worker JSONL (one record per spawned agent)
+workers = []
+try:
+    with open("${WORKERS_JSONL}") as fh:
+        for line in fh:
+            line = line.strip()
+            if line:
+                workers.append(json.loads(line))
+except FileNotFoundError:
+    pass
+
 result = {
     "run_id": "${RUN_ID}",
     "case_id": "${CASE_ID}",
@@ -332,6 +365,7 @@ result = {
     "wall_clock_secs": ${WALL_SECS},
     "tokens_in": ${TOTAL_TOKENS_IN},
     "tokens_out": ${TOTAL_TOKENS_OUT},
+    "workers": workers,
     "visible_pass": ${VISIBLE_PASS},
     "visible_total": ${VISIBLE_TOTAL},
     "hidden_pass": ${HIDDEN_PASS},
