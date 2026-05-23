@@ -124,16 +124,28 @@ Opus is **library-insensitive**: full library and stripped library both
 yield perfect flat fans on validator-suite. Opus's structural judgment
 is robust against the library's framing in a way sonnet's isn't.
 
-This is a clean tier-distinction signal: **opus's architect-quality is
-library-independent; sonnet's is library-dependent.** Combined with the
-designless variant (opus IS spec-dependent for scope discipline), this
-gives a layered picture of where each tier's strengths and weaknesses
-sit:
+This is a clean tier-distinction signal: **opus's architect-quality
+*default* is library-independent; sonnet's is library-dependent.**
+Combined with the designless variant (opus IS spec-dependent for scope
+discipline) and the enum-extension stripped-library probe (both tiers
+obey the library's enumeration as a hard constraint, neither goes
+off-menu), this gives a layered picture:
 
-| Sensitivity | Opus | Sonnet |
+| Sensitivity axis | Opus | Sonnet |
 |---|---|---|
 | Spec content (file enumeration) | Yes (scope discipline) | Yes (worse) |
-| Library content (idiom examples) | No | Yes |
+| Library default-shifting (which idiom is preferred) | No | Yes |
+| Library enumeration (won't go off-menu) | **Yes** | **Yes** |
+
+The third row is the sharpest practical implication: **the library
+defines the architect's solution space for both tiers.** Neither model
+invents idioms outside what the library offers. So library curation
+directly determines what structural moves are available, regardless of
+tier. Tier-distinction is about *defaults* within the available menu,
+not *expansion* of the menu.
+
+See `evals/enum-extension/GRAPH-SHAPE-RESULTS.md` "Stripped-library
+variant" for the enumeration-constraint experiment.
 
 ### Implication
 

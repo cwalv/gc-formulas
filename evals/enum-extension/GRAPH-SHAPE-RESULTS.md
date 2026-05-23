@@ -166,6 +166,54 @@ explicit-layout design docs into the right graph — but it does narrow
 the claim. The architect role isn't a pure capability test; it's a
 capability × prompt-quality interaction.
 
+## Stripped-library variant (2026-05-23)
+
+Companion to the validator-suite stripped-library probe. Same probe
+library (`evals/_probes/idioms-fanout-only.md`), this time on the
+shared-state case. The library only offers fire-and-forget fanout —
+which is the *wrong* shape for enum-extension because workers can't
+extend shared state in isolation.
+
+| Model | N | idiom | persona | shape | structurally sound |
+|---|---|---|---|---|---|
+| opus 4.7 | 5 | 5/5 fanout | 0/5 | 0/5 | **0/5** |
+| sonnet 4.6 | 5 | 5/5 fanout | 0/5 | 0/5 | **0/5** |
+
+### Headline (stripped library, enum-extension)
+
+**Both models obey the library as a hard constraint.** Neither tier
+went off-library to add a contract-author / merger / coordinator bead
+even though the case structurally requires one. They produced plain
+fanout 5/5 each.
+
+Opus was more *scope-disciplined* (5/5 reps with exactly 6 workers, one
+per error class); sonnet ranged 6-8 workers per rep (some off-by-one
+hallucinations). But neither found a way to encode the shared-state need
+because the library didn't give them an idiom that allows it.
+
+### Refined library-sensitivity picture
+
+Combining this with the validator-suite stripped-library result:
+
+| Library behavior | Opus | Sonnet |
+|---|---|---|
+| Default-shifting (idiom preference bias) | No | **Yes** |
+| Enumeration constraint (won't go off-menu) | **Yes** | **Yes** |
+
+The library is a **hard constraint on idiom choice for both tiers**.
+What differs is whether it *also* shifts the model's structural defaults.
+Sonnet absorbs the library's hierarchical examples as preferences;
+opus doesn't.
+
+The practical implication for real-world use is sharper than the
+earlier "library biases sonnet" finding suggested: **the library
+defines the architect's solution space.** Both tiers will pick from
+what's offered — they won't invent shapes outside the menu. So library
+curation directly determines what structural moves the architect can
+make, regardless of tier. The tier-distinction is only about whether
+the *order* of presentation (or relative prominence of hierarchical
+vs flat examples) biases the default pick.
+
 ## Follow-ups
 
 1. **Designless N=10**: replicate the 3/5 vs 4/5 finding with N=10 each.
