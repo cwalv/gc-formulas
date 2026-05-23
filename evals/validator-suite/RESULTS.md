@@ -1,20 +1,27 @@
-# validator-suite N=1 smoke results
+# validator-suite N=10 results
 
-Second plan-eval data point. Designed at the worker model's edge (opus-4-7). 7 sibling validators (Email, Phone, CreditCard, IBAN, ISBN, Semver, URL) sharing a `Validator` ABC and `Reason` enum, glued together by a `registry.py`. 20 visible tests + 26 hidden tests + 19 baseline tests.
+Second plan-eval data point. Three patterns compared on a case designed at the worker model's edge (opus-4-7). 7 sibling validators (Email, Phone, CreditCard, IBAN, ISBN, Semver, URL) sharing a `Validator` ABC and `Reason` enum, glued together by `registry.py`. 20 visible tests + 26 hidden tests + 19 baseline tests.
 
 ## Setup
 
 - **Case:** `evals/validator-suite/`. Authored by opus to be at opus's capability edge. Each validator has its own algorithm (Luhn, mod-97, mod-11, semver grammar, URL parsing) — pieces are NOT identical templates.
 - **Worker model:** `claude-opus-4-7[1m]` (captured from the runner's `worker_model` field).
-- **Patterns evaluated:** ralph (single-agent loop), naive fanout (8 parallel agents, no merge).
-- **N:** 1 each (smoke level — N=10 is the next step pending orchworkers landing).
+- **Patterns evaluated (N=10 each):** ralph (single-agent loop), naive fanout (7 parallel agents, no merge, no isolation), orchworkers (7 parallel agents + LLM merge step).
+- **Orchestration substrate:** bare bash + direct `claude -p` calls (no gc, no ntm, no bd formulas in the loop). The current runners are baselines; per-orchestrator runners are a future axis (see `docs/plan-evals.md`).
 
-## Results (N=1)
+## Results (N=10)
 
-| Pattern | Wall-clock | Tokens out | Visible | Existing | Notes |
-|---|---|---|---|---|---|
-| **Ralph** | 212.3s | 10515 | **20/20** | 19/19 | one-shot success at iter 1 |
-| **Naive fanout** | 32.4s | 7481 | **0/11** | 19/19 | only 11 of 20 visible tests collected — cross-piece imports broken |
+| Pattern | Median wall (s) | Mean tokens out | All-passed | Notes |
+|---|---|---|---|---|
+| Naive fanout (broken impl) | **25.7** | 4850 | **0/10** | only ~11 of 20 visible tests collected per run — workers corrupted shared imports |
+| **Orchworkers** | **99.5** | 12222 | **10/10** | **2× faster than ralph at same quality** |
+| Ralph (goal-check loop) | 197.6 | 12485 | 10/10 | one-shot at iter 1 in all runs; slowest, correct |
+
+## Headline finding
+
+**Orchestrator-workers wins decisively on this case.** Half ralph's wall-clock for identical quality (100% pass). The merge step adds negligible token cost (12.2K vs 12.5K mean tokens out) but cuts wall-clock in half by parallelizing the implementation phase.
+
+Naive fanout's 0/10 result needs honest framing: it's not "the fanout pattern fails" — my `eval-fanout.sh` is a broken-by-design implementation that does concurrent unsynchronized writes to a shared worktree, with no isolation and no merge. It happened to work on cancel-method (where pieces are truly file-isolated and there's no shared state to corrupt) but fails on validator-suite (where workers modify shared `base.py`, `registry.py`, and the `Reason` enum without coordination). The result demonstrates *what happens with shared-state concurrent writes*, not *what the Anthropic "sectioning" pattern does* (which requires either isolation OR merge).
 
 ## Headline finding
 
@@ -53,22 +60,14 @@ Hardcoding the pattern (as plan-evals M1 currently does) bypasses this decision.
 4. **Pattern selection as a third eval axis.** Not just "given pattern X, how does it score?" but "given the task, which pattern should the planner choose?" — see Implication section.
 5. **Hidden tests not scored yet.** The scorer doesn't run `hidden-tests/`. Once it does, we'd see whether ralph's one-shot misses hidden-test edge cases that orch-workers (with thoughtful per-worker context) might catch.
 
-## Pending: N=10 + orchworkers
-
-Once `eval-orchworkers.sh` lands, the full comparison run on validator-suite is:
-- N=10 ralph (already validated; ~35 min wall-clock total)
-- N=10 naive fanout (already validated; ~5 min)
-- N=10 orchworkers (pending)
-
-Token budget estimate: ~$20-25 total in opus tokens.
-
-## Reproducing this smoke
+## Reproducing
 
 ```sh
 cd github/cwalv/gc-formulas
 mkdir -p /tmp/eval-runs/vs-repro
-bash scripts/eval-ralph.sh   validator-suite --output-dir /tmp/eval-runs/vs-repro --run-id smoke-ralph
-bash scripts/eval-fanout.sh  validator-suite --output-dir /tmp/eval-runs/vs-repro --run-id smoke-fanout
+python3 scripts/eval-driver.py --case validator-suite --pattern ralph       --n 10 --output-dir /tmp/eval-runs/vs-repro
+python3 scripts/eval-driver.py --case validator-suite --pattern fanout      --n 10 --output-dir /tmp/eval-runs/vs-repro
+python3 scripts/eval-driver.py --case validator-suite --pattern orchworkers --n 10 --output-dir /tmp/eval-runs/vs-repro
 ```
 
-Approximately 4 min wall-clock for ralph + 1 min for fanout (or 4 min in parallel).
+Approximately 35 min wall-clock for ralph N=10, 5 min for fanout, 18 min for orchworkers (or ~35 min total if run in parallel — ralph dominates). Token budget ~$20-25 at opus pricing.
