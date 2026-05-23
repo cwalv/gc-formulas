@@ -22,7 +22,7 @@ The position implies these specific claims; each is a falsifiable proposition.
 
 4. **It scales.** N concurrent workflows draining a backlog work without an orchestration layer above the substrate. Worker pools, dispatch, retry are all substrate-level, not runtime concerns.
 
-5. **Better models do worse with cages.** Constraining the model with a workflow DSL hurts as model capability grows. Counter-experiment: build the same workflow with-DSL vs without; measure success rate against model versions.
+5. **Better models do worse with cages.** Constraining the model with a workflow DSL hurts as model capability grows. Counter-experiment: build the same workflow with-DSL vs without; measure success rate against model versions. **Adjacent finding (2026-05-23, plan-evals graph-shape probes):** the choreography idioms library — meant as an *enabling* substrate, not a cage — biases sonnet but not opus. Sonnet 0/10 → 5/5 on validator-suite when the library is stripped from 5 idioms to fire-and-forget-only; opus stays 5/5 either way. The library's hierarchical examples train sonnet's structural defaults; opus's defaults are robust against the framing. Same direction as claim 5: better-tier models are less prompt-induced. Different framing: it's not just "cages" (constraints) but also "suggestions" (idiom libraries) that weaker tiers absorb as defaults.
 
 ## What's validated so far
 
