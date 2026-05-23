@@ -32,6 +32,9 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
+# Shared model constants (WORKER_MODEL, PLANNER_MODEL).
+source "${SCRIPT_DIR}/eval-config.sh"
+
 # ---------------------------------------------------------------------------
 # Argument parsing
 # ---------------------------------------------------------------------------
@@ -161,6 +164,7 @@ ${SPEC_CONTENT}"
     cd "${WORKTREE}"
     claude \
       -p "${ITER_PROMPT}" \
+      --model "${WORKER_MODEL}" \
       --dangerously-skip-permissions \
       --output-format json \
       2>&1

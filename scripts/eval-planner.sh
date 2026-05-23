@@ -43,6 +43,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 EVALS_DIR="${REPO_ROOT}/evals"
 
+# Shared model constants (WORKER_MODEL, PLANNER_MODEL).
+source "${SCRIPT_DIR}/eval-config.sh"
+
 # ---------------------------------------------------------------------------
 # Argument parsing
 # ---------------------------------------------------------------------------
@@ -186,6 +189,7 @@ echo "[planner] Invoking planner claude -p…" >&2
 
 PLANNER_EXIT=0
 claude -p "${PLANNER_BRIEF}" \
+    --model "${PLANNER_MODEL}" \
     --dangerously-skip-permissions \
     --output-format json \
     > "${PLANNER_OUT}" \

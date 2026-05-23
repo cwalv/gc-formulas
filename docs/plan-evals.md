@@ -77,10 +77,10 @@ Each case run multiple times (5-10) to get distributions, not single points.
 
 | Role | Default model | Why |
 |---|---|---|
-| Worker | **haiku** (currently 4.5) | Weakest; task tier calibrated to its edge — multi-file consistency, context-management, etc. start failing here |
-| Planner | sonnet or opus | Decomposition quality matters; planner is one call vs N worker calls so cost is bounded |
-| Evaluator (in eval-optimizer pattern) | sonnet | Needs to judge well but is a rare call |
-| Case author (offline, one-time) | opus | Authoring quality matters; not what we're evaluating |
+| Worker | **sonnet** (4.6) | Operationally relevant cheap-worker tier; pinned in `scripts/eval-config.sh` as `WORKER_MODEL`. Highly capable but cheaper-per-token and lower session-quota cost than opus, which matters at N parallel workers per rep × N reps. |
+| Planner / orchworkers-merge | opus (4.7) | Decomposition + reconciliation quality matters; only one call per rep so cost is bounded. Pinned as `PLANNER_MODEL`. |
+| Evaluator (in eval-optimizer pattern, future) | sonnet or opus (TBD) | Rare call per rep; quality matters but tier isn't load-bearing. Decide when E2 lands. |
+| Case author (offline, one-time) | opus | Authoring quality matters; not what we're evaluating. |
 
 This gives the eval a built-in regression mechanism: as haiku gets smarter, tasks that used to differentiate stop differentiating. Two valid outcomes:
 1. The corpus needs harder cases (capability frontier moved; the eval shows it).
@@ -90,7 +90,9 @@ Either way the eval becomes a tracking surface for *where the capability frontie
 
 **The core question this frames empirically:** "does orchestration close the gap so a haiku-shaped team produces opus-shaped output?" If yes, the orchestration pillar pays for itself across model classes — you can scale work using cheap models if the structure is right. If no (orchestration overhead exceeds the capability lift), the position has to retreat.
 
-**Actual practice (M1+M2):** worker = `claude-opus-4-7[1m]` (the `claude -p` default). Cases were authored at opus-4-7's capability edge, not haiku's — opus is what's actually doing the work in current Claude Code sessions, so it's the most operationally relevant tier. The haiku-as-worker axis is a future expansion: re-run the same cases with haiku workers and measure whether orchestration closes the capability gap. Currently aspirational; the per-tier comparison hasn't been executed.
+**Actual practice (post-A):** worker = `claude-sonnet-4-6`, planner / orchworkers-merge = `claude-opus-4-7`. Configured via `scripts/eval-config.sh` (constants `WORKER_MODEL` and `PLANNER_MODEL`), pinned in each runner via `claude -p --model`. Rationale: sonnet 4.6 is highly capable and shoulders the per-worker load at substantially lower session-quota cost; opus handles the smaller-N planning + reconciliation calls where decomposition quality matters more. The haiku-as-worker axis is deferred — sonnet is the operationally relevant cheap-worker tier today, not haiku.
+
+**Historical note:** M1 + M2 baselines (cancel-method, validator-suite) were collected with opus workers (the previous `claude -p` default). Those results survive as comparison rows. Going forward, the bench's default is the sonnet/opus split described above; override per-invocation with `WORKER_MODEL=opus bash scripts/eval-X.sh ...` if testing the model axis.
 
 ## Comparison axes
 

@@ -45,6 +45,9 @@ RUN_ID=""
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 EVALS_DIR="${REPO_ROOT}/evals"
 
+# Shared model constants (WORKER_MODEL, PLANNER_MODEL).
+source "$(dirname "${BASH_SOURCE[0]}")/eval-config.sh"
+
 # ---------------------------------------------------------------------------
 # Argument parsing
 # ---------------------------------------------------------------------------
@@ -209,6 +212,7 @@ When done, your work is complete. Output a summary of what you changed."
 
     echo "[orchworkers] Spawning worker for ${ENTITY_BASENAME}" >&2
     claude -p "${BRIEF}" \
+        --model "${WORKER_MODEL}" \
         --dangerously-skip-permissions \
         --output-format json \
         > "${AGENT_OUT}" \
@@ -370,6 +374,7 @@ MERGE_ERR="${AGENT_TMP}/merge.err"
 
 MERGE_EXIT=0
 claude -p "${MERGE_BRIEF}" \
+    --model "${PLANNER_MODEL}" \
     --dangerously-skip-permissions \
     --output-format json \
     > "${MERGE_OUT}" \
