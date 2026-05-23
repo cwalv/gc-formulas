@@ -23,7 +23,8 @@ does no real work, so it's pure overhead.
 |---|---|---|---|---|---|
 | **opus 4.7** | 10 | 10/10 | 10/10 | 10/10 | **10/10** |
 | sonnet 4.6 | 10 | 10/10 | 0/10 | 0/10 | 0/10 |
-| sonnet 4.6 + "no coordinator" hint | 5 | 5/5 | 3/5 | 1/5 | 1/5 |
+| sonnet 4.6 + "no coordinator" hint (soft) | 5 | 5/5 | 3/5 | 1/5 | 1/5 |
+| sonnet 4.6 + "no coordinator" hint (strong) | 5 | 5/5 | 4/5 | 4/5 | 4/5 |
 
 ## Headline finding
 
@@ -54,11 +55,28 @@ planner brief. Ran N=5 with:
 > embarrassingly-parallel work; an idle coordinator bead is overhead, not
 > safety.
 
-Result: **idiom 5/5, persona 3/5, shape 1/5, overall 1/5**. The instruction
-moves the needle (persona-match jumped from 0/10 to 3/5), but full shape
-match only landed once. Common partial-failure mode: sonnet drops the
-"coordinator" label but still chains the workers via a depends-on edge.
-Knowing it shouldn't add structure doesn't fully erase the bias.
+Result with the soft instruction above: **idiom 5/5, persona 3/5, shape
+1/5, overall 1/5**. The instruction moves the needle (persona-match
+jumped from 0/10 to 3/5), but full shape match only landed once. Common
+partial-failure mode: sonnet drops the "coordinator" label but still
+chains the workers via a depends-on edge.
+
+A **stronger** structural instruction:
+
+> STRUCTURAL CONSTRAINT: the graph MUST have exactly N independent root
+> beads with NO dependencies between them, where N equals the number of
+> leaf files to write. Do not add a coordinator, parent, planning, or
+> supervising bead. Do not chain workers via depends-on edges. Each
+> worker is a root AND a sink — a truly independent leaf.
+
+Result: **idiom 5/5, persona 4/5, shape 4/5, overall 4/5**. The bias is
+*largely correctable* with explicit topology guidance. The 1 residual
+failure was a different mode entirely: sonnet hallucinated an 8th worker
+bead for `base.py`, which is in the starting state but not in scope to
+modify. So the strong instruction fixed the "extra coordinator" bias but
+exposed a different "extra worker" tendency. **The architecture biases
+toward adding nodes; the type of node varies but the urge to add structure
+persists.**
 
 ## Per-rep detail (sonnet baseline, N=10)
 
