@@ -39,6 +39,8 @@ Each Anthropic pattern earns its keep on a different axis. The eval shape has to
 
 This is enough structure that each pattern can be tested *for the reason it exists*, not just "did it pass." Without it, e.g., evaluator-optimizer looks like pure overhead (slower than single-pass with no measurable win).
 
+**Empirical caveat (from M1+M2):** naive-fanout — concurrent unsynchronized writes to a shared worktree, no isolation, no merge — is *not* a valid implementation of "sectioning." It only succeeds when pieces are truly file-isolated and have no shared state (cancel-method case). On shared-state tasks (validator-suite case), it produces broken output, not just slow output. The valid sectioning implementation requires either per-worker isolation (separate worktrees + file-scoped collation) or orchestrator-workers' explicit LLM merge step. Treat naive-fanout as an anti-pattern, useful only as a measurement of *what happens when you skip reconciliation*.
+
 ## What makes a good goal (corpus case)
 
 A corpus case must be:
@@ -88,6 +90,8 @@ Either way the eval becomes a tracking surface for *where the capability frontie
 
 **The core question this frames empirically:** "does orchestration close the gap so a haiku-shaped team produces opus-shaped output?" If yes, the orchestration pillar pays for itself across model classes — you can scale work using cheap models if the structure is right. If no (orchestration overhead exceeds the capability lift), the position has to retreat.
 
+**Actual practice (M1+M2):** worker = `claude-opus-4-7[1m]` (the `claude -p` default). Cases were authored at opus-4-7's capability edge, not haiku's — opus is what's actually doing the work in current Claude Code sessions, so it's the most operationally relevant tier. The haiku-as-worker axis is a future expansion: re-run the same cases with haiku workers and measure whether orchestration closes the capability gap. Currently aspirational; the per-tier comparison hasn't been executed.
+
 ## Comparison axes
 
 What you'd vary to learn:
@@ -121,84 +125,97 @@ Three plausible sources, in increasing order of fidelity:
 
 Probably start (1) for the first data point, expand to (3) once the eval runner is stable.
 
+## Findings to date
+
+Two cases authored at opus-4-7's capability edge:
+
+| Case | Pattern | N | Median wall-clock | All-pass | Notes |
+|---|---|---|---|---|---|
+| cancel-method | Ralph (one-shot) | 10 | 83.6s | 10/10 | Case too easy at this tier — both patterns one-shot it |
+| cancel-method | Naive fan-out | 10 | 28.9s | 10/10 | 2.9× speedup; pieces truly file-isolated so no shared-state corruption |
+| validator-suite | Ralph (loop) | 10 | 197.6s | 10/10 | One-shot at iter 1 in all runs; slowest, correct |
+| validator-suite | Naive fan-out | 10 | 25.7s | **0/10** | Workers corrupted shared `base.py`/`registry.py`/`Reason` enum without merge |
+| validator-suite | Orch-workers | 10 | 99.5s | 10/10 | 2× faster than ralph at same quality; LLM merge reconciles shared state |
+
+**Two findings, in tension:**
+1. **The right pattern wins on wall-clock at equal or better quality.** Orch-workers vs ralph on validator-suite: 2× faster, same 100% pass rate.
+2. **The wrong pattern produces broken results, not just slow ones.** Naive concurrent writes to shared state degrade quality, not throughput — validator-suite naive-fanout was 6.5× faster than ralph but 0/10 passing.
+
+**Implication for the planner:** pattern selection is the load-bearing decision. Hardcoding a pattern (as the current M1 runners do) bypasses the value the planner is supposed to add. This is the most direct test of `position.md`'s "model-as-orchestrator" claim and is the next milestone (B below).
+
+**Known runner correctness issue:** `eval-fanout.sh` and `eval-orchworkers.sh` have a cancel-method-specific hardcoded brief at ~line 178 ("add a `cancel()` method to ONLY the file: entities/...") that's still used even when running validator-suite. Workers got a brief that didn't match the spec for the latter. Partially invalidates the 0/10 validator-suite naive-fanout interpretation; A.1 below fixes this.
+
 ## Milestones
 
-### M1: First data point (1-2 days)
+### M1 — done
 
-**Goal:** answer "does fan-out beat ralph on wall-clock for one well-shaped case?"
+Initial runner infrastructure (`eval-ralph.sh`, `eval-fanout.sh`, `eval-scorer.py`, `eval-driver.py`) + cancel-method case. Result: fan-out 2.9× faster than ralph at identical pass rate (100%) on a file-isolated task. See `evals/cancel-method/RESULTS.md`.
 
-**Deliverables:**
-- One Tier-1 corpus case (e.g. "add `cancel()` method to 3 sibling files; existing tests pass"). Hand-crafted: starting fixture + visible-test assertion script.
-- Ralph baseline runner — single agent in a loop, no orchestration.
-- One fan-out runner — uses our existing scenario 05 (orchestrator-workers) shape.
-- Metrics: wall-clock, token count, visible-test pass rate.
-- Each runs 10× to get pass-rate + median wall-clock.
+### M2 — partial
 
-**Definition of done:** first data point. For this one case, does fan-out beat ralph on wall-clock at acceptable pass rate?
+What's done:
+- Validator-suite case authored at opus-4-7's edge (7 sibling validators sharing ABC + Reason enum + registry; 19 baseline + 20 visible + 26 hidden tests).
+- Hidden tests authored for both cases; scorer surfaces `hidden_pass`/`hidden_total` alongside visible.
+- `eval-orchworkers.sh` added (sectioning + LLM merge step).
+- Three-pattern comparison N=10 each on validator-suite. Orch-workers wins (99.5s vs ralph 197.6s, both 10/10).
+- Worker-model identification in result JSON (`worker_model` field).
 
-### M2: Tier breadth + quality dimension (3-5 days)
+What's not yet done (deferred to A-C ladder below):
+- A: Brief-bug fix + clean re-run.
+- B: Pattern selection as an eval axis.
+- C: True sectioning impl (per-worker isolation, deterministic file-scoped collation); per-orchestrator runners.
 
-**Goal:** find the break-even region; add a quality axis.
+### A — Runner correctness (cheap)
 
-**Deliverables:**
-- Add 2 more cases:
-  - **N=1 negative control** (single-file refactor; ralph should win or tie).
-  - **N=10 case** (mass-substitution across files; fan-out should dominate).
-- Add **hidden tests** to one of the cases (probably the N=10) — assertions only the scorer sees. Lets us measure pattern quality, not just correctness floor.
-- Re-run all cases across both patterns.
+- **A.1**: Fix the cancel-method-specific hardcoded brief in `scripts/eval-fanout.sh` (lines ~174, 180, 182) and `scripts/eval-orchworkers.sh`. Use `${FANOUT_DIR_NAME}` instead of literal `entities/`; remove the `cancel() method` verb and the `event_bus.py` exclusion (rely on the `exclude` list in `fanout.json`); have the brief reference the case's `spec.md` for the verb.
+- **A.2**: Re-run validator-suite naive-fanout N=10 with the fixed brief. Update `evals/validator-suite/RESULTS.md` with either confirmation (broken impl, structurally bad — the 0/10 result holds) or revision (was a brief bug).
+- **A.3**: Regression-check cancel-method N=10 to confirm the fix didn't break the working case.
 
-**Definition of done:** observe the break-even region between ralph and fan-out; confirm hidden tests differentiate quality.
+### B — Pattern-selection eval
 
-### M3: Library + composition (5-7 days)
+`scripts/eval-planner.sh` — show the planner the case (spec.md + starting-state directory tree summary), present the pattern menu (ralph / sectioning / orch-workers / eval-optimizer), get back JSON `{"pattern": "...", "reasoning": "..."}`, then dispatch the chosen runner.
 
-**Goal:** test whether a curated library improves plan quality (this directly tests `position.md`'s claim 2).
+Result JSON adds `planner_choice`, `planner_reasoning`, `planner_tokens_in`/`out` on top of the chosen pattern's normal fields. Score the planner's choice against the empirically best pattern for the case — does opus correctly route validator-suite to orch-workers, cancel-method to fan-out?
 
-**Deliverables:**
-- Add a "library-driven planner" variant — same planner LLM but given a markdown library of canonical workflows to pick from. Compare to freeform planner.
-- Add a case that **requires composition** (a step in the parent formula instantiates a child wisp). Tests the position's claim that "patterns compose without runtime infrastructure."
-- Pattern variants: add voting + evaluator-optimizer to the eval matrix (they should differentiate on quality, not wall-clock).
+The most direct test of `position.md`'s "model-as-orchestrator" claim. Without it, the bench measures only "given pattern X, how does it score" — the actual orchestration decision is offstage.
 
-**Definition of done:**
-- Does a curated library improve plan quality vs freeform planner?
-- Does composition work end-to-end?
-- Do voting and evaluator-optimizer differentiate from sectioning on the quality axis?
+### C — Bench completeness
 
-### M4: Curated authoring workflow (3-5 days)
+- **C.1**: `scripts/eval-sectioning.sh` — per-worker isolated worktrees + deterministic file-scoped collation (no LLM merge). The correct implementation of Anthropic's sectioning pattern; replaces naive-fanout as the canonical "isolation without merge" baseline.
+- **C.2**: Per-orchestrator runners — `scripts/eval-gc.sh`, `scripts/eval-ntm.sh`. Re-run the same patterns through validation-pack scenarios. Requires validation-pack refactor to take *external* eval cases (instead of hardcoded task briefs). Most complex item; treat as its own milestone if scope grows.
+- **C.3**: Update the `Pattern-specific win conditions` table above to reflect empirics — naive-fanout is structurally broken; sectioning needs either isolation or merge; orch-workers wins both axes when state is shared.
+- **C.4**: Worker-contract length tracking — capture per-worker prompt and output token counts in result JSON, not just aggregates. Tests `position.md` claim 3 (short worker contracts) empirically.
 
-**Goal:** make corpus growth cheap.
+### D1 — Scale the evidence base
 
-**Deliverables:**
-- Template directory structure for new cases:
-  ```
-  evals/<case-id>/
-  ├── spec.md              # the intent given to the planner
-  ├── starting-state/      # fixture: starting repo state
-  ├── visible-tests/       # assertions the planner sees as spec
-  ├── hidden-tests/        # assertions only the scorer sees
-  └── expected-graph.md    # reference plan (for plan-only eval)
-  ```
-- A `scripts/add-eval-case.sh` or similar to scaffold a new case.
-- Documentation: how to author a good case (reference back to "what makes a good goal" section above).
-- Grow corpus to 5-10 cases total.
+3-5 more synthetic cases at opus-4-7's edge, covering shapes the current two miss:
+- Cross-cutting refactor (one logical change touching N files; no clean per-file decomposition).
+- Debugging-no-spec (read code, find bug, fix; no test-target).
+- Integration (multiple subsystems, coordination across module boundaries).
 
-**Definition of done:** anyone can author a new case in <30 minutes; corpus has at least 5 cases.
+Plus: N≥20 per cell for tighter confidence intervals; cost/quality Pareto plots ("at this token budget, which pattern wins") instead of just headline wall-clock medians.
 
-### M5: Regular runs + trend tracking (ongoing)
+### D2 — Real-world validation
 
-**Goal:** make this load-bearing.
+Replay 5-10 real beads from foundations history (refinery failures, formula authoring, supervisor bugs) through the eval framework. Strip back to "starting state + spec" form; run patterns; score. Tests external validity — does the bench predict reality, or have we built a synthetic-cases optimum?
 
-**Deliverables:**
-- Scheduled or CI-integrated eval runs.
-- Persist results across runs (model version, date, conditions, per-case scores).
-- Simple trend report — pass rate by model, by pattern, by case over time.
+**Run D2 before D1.** One real-world case that breaks the pattern-task-fit story is worth ten synthetic confirmations.
 
-**Definition of done:** trend visible across at least 3 model versions; regressions surface in the report.
+### D3 — Cash out the position
 
-### Stretch: SWE-bench Lite integration
+After A-C + D2, rewrite `docs/position.md` as a grounded claim. Cite the eval data. Make the falsifiable version of "model-as-orchestrator, with these patterns, on these substrates, at these costs, with these failure modes." This is the deliverable — the bench was always evidence; the position is what the evidence supports.
 
-**Goal:** representative corpus at scale.
+### Stretch (deferred)
 
-Adapt 20-30 SWE-bench Lite cases into our runner. Useful for comparing our orchestration patterns to the broader research community's single-agent baselines.
+- **Haiku-worker axis.** Re-run cases with haiku-as-worker to test "does orchestration close the capability gap." Was the original M3-era framing; deferred because the operationally relevant tier today is opus.
+- **Voting, evaluator-optimizer, prompt-chaining** patterns added to the matrix.
+- **Cross-model orchestration** (opus orchestrating sonnet/haiku workers — is the tier relationship load-bearing?).
+- **Persistent multi-session work** (current evals are one-shot; real work has handoffs).
+- **Substrate-failure-mode evals** (dolt flake mid-run, supervisor restart, etc.).
+- **Library-driven planner** — same planner LLM but given a markdown library of canonical workflows. Compare to freeform planner. Tests `position.md` claim 2 directly.
+- **Plan-only / fake-worker eval** for cheap iteration on planning logic without LLM execution cost.
+- **Case authoring scaffold** (`scripts/add-eval-case.sh`) once corpus expansion is the bottleneck.
+- **SWE-bench Lite integration** — 20-30 cases at the right complexity tier; lets us compare to research-community single-agent baselines.
 
 ## Open questions
 
