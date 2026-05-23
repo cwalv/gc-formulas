@@ -26,6 +26,7 @@ does no real work, so it's pure overhead.
 | sonnet 4.6 + "no coordinator" hint (soft) | 5 | 5/5 | 3/5 | 1/5 | 1/5 |
 | sonnet 4.6 + "no coordinator" hint (strong) | 5 | 5/5 | 4/5 | 4/5 | 4/5 |
 | opus 4.7 designless (`design-stripped.md`) | 5 | 5/5 | 2/5 | 2/5 | **2/5** |
+| sonnet 4.6 + stripped library (fanout-only) | 5 | 5/5 | 5/5 | 5/5 | **5/5** |
 
 ## Headline finding
 
@@ -85,6 +86,60 @@ All 10 reps picked `fanout` for the idiom. Shape variants:
 
 - 8 reps: 1 root + 7 sinks, max_depth 2, fan_in_to_sink 1 — coordinator → 7 workers
 - 2 reps: 1 root + 1 sink, max_depth 3, fan_in_to_sink 7 — coordinator → 7 workers → 1 integrator
+
+## Stripped-library variant (sonnet 4.6, N=5)
+
+Probes whether sonnet's "add a coordinator" bias is **taught by the
+choreography-idioms library** or intrinsic to the model. The full library
+(`docs/choreography-idioms.md`) presents five idioms — fanout, synthesis-
+pipeline, critique-loop, two-phase-commit, gatekeeper. Four of them have
+explicit hierarchy (a parent / synthesizer / contract-author / merger
+bead aggregating children). Hypothesis: sonnet reads "good graphs have
+hierarchy" from this curriculum and applies it to embarrassingly-parallel
+cases too.
+
+Stripped library (`evals/_probes/idioms-fanout-only.md`) shows ONLY the
+fire-and-forget fan-out idiom, with the explicit framing "there is no
+parent bead, no coordinator bead — the leaves are the entire graph."
+
+Pointed the runner at the stripped library via `IDIOMS_FILE_OVERRIDE` env
+var (added to `eval-graph-shape.sh` for this probe).
+
+### Result
+
+| Library | N | idiom | persona | shape | overall |
+|---|---|---|---|---|---|
+| full library (baseline) | 10 | 10/10 | 0/10 | 0/10 | **0/10** |
+| stripped (fanout-only) | 5 | 5/5 | 5/5 | 5/5 | **5/5** |
+
+**The bias is taught, not intrinsic.** When the library only models
+fire-and-forget, sonnet correctly produces the flat 7-leaf fan. The
+"add a coordinator" preference is *learned from the library's
+hierarchical examples* and applied even when those examples don't fit
+the case.
+
+### Implication
+
+The choreography-idioms library is doing real work — and the work is
+**not just providing options the architect picks from.** It's actively
+biasing the architect's structural preferences. For real-world use:
+
+1. **Per-case library curation**: show the architect only the idioms
+   that could plausibly fit. (Would require a routing layer above the
+   architect — "is this shared-state or parallel? show only matching
+   idioms.")
+2. **Reframe the library**: make fire-and-forget the explicit baseline
+   ("only add structure if shared state forces it"). Other idioms are
+   *exceptions*, not equal options.
+3. **Use opus for the architect role**: opus appears less library-
+   influenced — it produced flat fans on validator-suite with the full
+   library, where sonnet over-structured. (Spec'd data; the designless
+   probe shows opus has its own dependencies.)
+
+This is the kind of finding that's almost impossible to surface without
+a bench — "the prompt library is the bias" looks like a generic warning,
+but having two N=10 distributions and one N=5 distribution that flip
+the headline (0/10 → 5/5) makes it concrete.
 
 ## Designless variant (opus 4.7, N=5)
 

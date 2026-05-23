@@ -23,6 +23,10 @@
 #                            constraint" section. Used to probe whether sonnet's
 #                            structural biases (over-coordination, batching) are
 #                            correctable via explicit instruction.
+#   IDIOMS_FILE_OVERRIDE   — path to a custom choreography idioms file to show the
+#                            planner. Used to probe whether the library's
+#                            hierarchical examples teach the model to over-structure.
+#                            Default: docs/choreography-idioms.md.
 #
 # Outputs:
 #   <output-dir>/results-<run-id>.json   — scored result JSON (driver-compatible)
@@ -36,7 +40,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 EVALS_DIR="${REPO_ROOT}/evals"
-IDIOMS_FILE="${REPO_ROOT}/docs/choreography-idioms.md"
+IDIOMS_FILE="${IDIOMS_FILE_OVERRIDE:-${REPO_ROOT}/docs/choreography-idioms.md}"
 
 source "${SCRIPT_DIR}/eval-config.sh"
 
