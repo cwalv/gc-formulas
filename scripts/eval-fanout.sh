@@ -171,15 +171,15 @@ declare -A PID_TO_OUT
 
 for ENTITY_FILE in "${ENTITY_FILES[@]}"; do
     ENTITY_BASENAME="$(basename "${ENTITY_FILE}")"
-    ENTITY_REL="entities/${ENTITY_BASENAME}"
+    ENTITY_REL="${FANOUT_DIR_NAME}/${ENTITY_BASENAME}"
     AGENT_OUT="${AGENT_TMP}/${ENTITY_BASENAME%.py}.out"
     AGENT_ERR="${AGENT_TMP}/${ENTITY_BASENAME%.py}.err"
 
     BRIEF="Working in the directory: ${WORKTREE}
 
-Your task is to add a cancel() method to ONLY the file: ${ENTITY_REL}
+Your task is to modify ONLY the file: ${ENTITY_REL}
 
-Do not touch any other file. Do not modify tests. Do not modify event_bus.py.
+Do not touch any other file. Do not modify tests. Read the spec below for what to do.
 
 Here is the full task spec for context (but your scope is limited to ${ENTITY_REL}):
 

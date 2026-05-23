@@ -195,9 +195,9 @@ for ENTITY_FILE in "${ENTITY_FILES[@]}"; do
 
     BRIEF="Working in the directory: ${WORKTREE}
 
-Your task is to implement the required behaviour for ONLY the file: ${ENTITY_REL}
+Your task is to modify ONLY the file: ${ENTITY_REL}
 
-Do not touch any other file. Do not modify any tests.
+Do not touch any other file. Do not modify tests. Read the spec below for what to do.
 
 Here is the full task spec for context (but your scope is limited to ${ENTITY_REL}):
 
