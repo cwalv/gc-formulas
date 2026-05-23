@@ -3,8 +3,8 @@
 eval-driver.py — runs an eval runner N times and aggregates per-run results.
 
 Usage:
-    python3 scripts/eval-driver.py --case <case-id> --pattern {ralph,fanout} --n 10 \
-        [--output-dir DIR]
+    python3 scripts/eval-driver.py --case <case-id> \
+        --pattern {ralph,fanout,sectioning,orchworkers} --n 10 [--output-dir DIR]
 
 The driver invokes:
     bash scripts/eval-<pattern>.sh <case-id> --output-dir <dir> --run-id <run-id>
@@ -34,7 +34,11 @@ import time
 def parse_args():
     p = argparse.ArgumentParser(description="Run an eval pattern N times and aggregate results.")
     p.add_argument("--case", required=True, help="Eval case ID (e.g. cancel-method)")
-    p.add_argument("--pattern", required=True, help="Runner pattern name (ralph, fanout, …)")
+    p.add_argument(
+        "--pattern",
+        required=True,
+        help="Runner pattern name (ralph, fanout, sectioning, orchworkers)",
+    )
     p.add_argument("--n", type=int, required=True, help="Number of runs")
     p.add_argument(
         "--output-dir",
