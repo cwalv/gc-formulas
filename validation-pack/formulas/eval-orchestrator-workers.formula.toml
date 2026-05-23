@@ -1,0 +1,342 @@
+description = """
+Eval-mode orchestrator-workers — variant of orchestrator-workers.formula.toml
+for plan-evals C.2 (per-orchestrator substrate runners).
+
+Differences from orchestrator-workers.formula.toml:
+  - Parameterised over a spec (`spec_content`), a worktree path (`worktree_path`),
+    and a fan-out file list (`fanout_files`, newline-joined).
+  - Up to N=10 implementer steps (option (a) in docs/per-orchestrator-runners.md
+    §4.1). Drivers route only the first N actually-needed implements; the
+    remaining are CLOSED with reason=skipped by the driver BEFORE step-land
+    becomes ready, so step-land's dep on all 10 implements still resolves.
+  - Implementers edit files in {{worktree_path}} (filesystem is the artifact),
+    not bd comments. They still write a brief 'Result:' comment for audit
+    parity with the hermetic scenarios.
+  - step-land runs pytest INSIDE {{worktree_path}} and reconciles cross-cutting
+    issues, mirroring eval-orchworkers.sh's bare-bash merge step.
+
+Routing (driver responsibility, same as scenario 05):
+  - step-orchestrate    → validation/foreman
+  - step-implement-1..N → validation/implementer  (N from EVAL_FANOUT_FILES_COUNT)
+  - step-implement-(N+1)..10 → driver closes immediately, reason=skipped
+  - step-land           → validation/treehugger
+
+Success predicate (driver-side, not verify_bead_state.py — that's skipped in
+eval mode by run-scenario.sh): step-land closed with reason=landed."""
+
+formula = "eval-orchestrator-workers"
+version = 1
+pour = true
+
+[vars]
+[vars.spec_content]
+description = "Full spec.md text the worker brief embeds."
+required = true
+
+[vars.worktree_path]
+description = "Absolute container path the workers edit files in."
+required = false
+default = "/home/agent/eval-worktree"
+
+[vars.fanout_files]
+description = "Newline-joined list of file paths (relative to worktree_path) the workers will fan out over. One file per active implementer step."
+required = true
+
+[vars.fanout_dir]
+description = "Directory under worktree_path that scopes the fan-out (informational; matches fanout.json#dir)."
+required = true
+
+[[steps]]
+id = "step-orchestrate"
+title = "Orchestrate: decompose eval-case fan-out into per-file SUBTASK assignments"
+description = """
+You are the **orchestrator** (foreman role) in an eval-mode orchestrator-workers
+flow. The substrate has pre-allocated 10 implementer beads; your job is to write
+SUBTASK lines so the implementers know which file each owns.
+
+**Worktree:** `{{worktree_path}}`
+**Fan-out scope:** `{{fanout_dir}}/`
+
+**Files to assign (one per SUBTASK, in order):**
+
+```
+{{fanout_files}}
+```
+
+**Your lifecycle:**
+
+1. `bd show <this-bead-id>` then `bd update <this-bead-id> --claim`.
+
+2. Count the files listed above — call that N. Write SUBTASK-1 through SUBTASK-N
+   as a single comment, one assignment per line. Each line is exactly:
+   `SUBTASK-<i>: <file-path-relative-to-worktree>`
+
+   Example for two files:
+   ```
+   SUBTASK-1: validators/email.py
+   SUBTASK-2: validators/url.py
+   ```
+
+   Write it:
+   ```bash
+   bd comment <this-bead-id> "$(cat <<'EOF'
+   SUBTASK-1: <first file from the list>
+   SUBTASK-2: <second file from the list>
+   ...
+   EOF
+   )"
+   ```
+
+3. Close with `bd close <this-bead-id> --reason="decomposed"`.
+
+4. `gc runtime drain-ack`.
+
+**You do NOT need to read the spec or edit any files** — file partitioning is
+mechanical (one file per SUBTASK in the listed order). Implementers will read
+the spec themselves.
+
+**Exit criteria:** Bead is `closed` with reason `decomposed`; a comment contains
+SUBTASK-1 through SUBTASK-N lines matching the file list above."""
+
+[[steps]]
+id = "step-implement-1"
+title = "Implement file assignment SUBTASK-1 in eval worktree"
+needs = ["step-orchestrate"]
+description = """
+You are an **implementer** agent in an eval-mode orchestrator-workers flow.
+The orchestrator (step-orchestrate) has decomposed the work into per-file
+SUBTASK assignments. Your assignment is SUBTASK-1.
+
+**Worktree:** `{{worktree_path}}` — this is the work area. The artifact is the
+file edit, not your bd comment.
+
+**Your lifecycle:**
+
+1. `bd show <this-bead-id>` then `bd update <this-bead-id> --claim`.
+
+2. Find step-orchestrate's SUBTASK-1 assignment:
+   ```bash
+   bd show <this-bead-id> --json | jq '.[0].deps'    # parent is step-orchestrate's id
+   ORCH_ID=$(bd show <this-bead-id> --json | jq -r '.[0].deps[0]')
+   ORCH_COMMENTS=$(bd show "$ORCH_ID" --json | jq -r '.[0].comments[]?.content // .[0].comments[]?.body // .[0].notes // empty')
+   ```
+   Find the line beginning `SUBTASK-1:` — that names your file (path relative
+   to the worktree).
+
+   **If no SUBTASK-1 line exists** (orchestrator wrote fewer SUBTASKs than
+   pre-allocated implementer beads): close this bead immediately with
+   `bd close <this-bead-id> --reason="skipped"` and proceed to drain-ack.
+   This is expected when the case has fewer files than max-N.
+
+3. `cd {{worktree_path}}` and edit the file specified in SUBTASK-1 per this
+   spec:
+
+   ---
+   {{spec_content}}
+   ---
+
+   Only edit YOUR assigned file. Do not modify other files, tests, or shared
+   modules (the spec lists what's shared and excluded).
+
+4. After your edit:
+   ```bash
+   bd comment <this-bead-id> "Result: edited <file> per spec"
+   bd close <this-bead-id> --reason="completed"
+   ```
+
+5. `gc runtime drain-ack`.
+
+**Exit criteria:** Bead is `closed` (reason `completed` if you edited a file;
+`skipped` if no SUBTASK-1 was assigned)."""
+
+[[steps]]
+id = "step-implement-2"
+title = "Implement file assignment SUBTASK-2 in eval worktree"
+needs = ["step-orchestrate"]
+description = """
+You are an **implementer** agent. Your assignment is SUBTASK-2. Same lifecycle
+as the SUBTASK-1 implementer — read step-orchestrate's comments, find your
+SUBTASK-2 line, edit the assigned file in `{{worktree_path}}` per the spec
+below.
+
+If no SUBTASK-2 line exists, `bd close <this-bead-id> --reason="skipped"` and
+drain-ack.
+
+Spec:
+---
+{{spec_content}}
+---"""
+
+[[steps]]
+id = "step-implement-3"
+title = "Implement file assignment SUBTASK-3 in eval worktree"
+needs = ["step-orchestrate"]
+description = """
+You are an **implementer** agent. Your assignment is SUBTASK-3. Read step-
+orchestrate's comments for `SUBTASK-3:` and edit the named file in
+`{{worktree_path}}` per the spec below. If no SUBTASK-3 line, close skipped.
+
+Spec:
+---
+{{spec_content}}
+---"""
+
+[[steps]]
+id = "step-implement-4"
+title = "Implement file assignment SUBTASK-4 in eval worktree"
+needs = ["step-orchestrate"]
+description = """
+You are an **implementer** agent. Your assignment is SUBTASK-4. Read step-
+orchestrate's comments for `SUBTASK-4:` and edit the named file in
+`{{worktree_path}}` per the spec below. If no SUBTASK-4 line, close skipped.
+
+Spec:
+---
+{{spec_content}}
+---"""
+
+[[steps]]
+id = "step-implement-5"
+title = "Implement file assignment SUBTASK-5 in eval worktree"
+needs = ["step-orchestrate"]
+description = """
+You are an **implementer** agent. Your assignment is SUBTASK-5. Read step-
+orchestrate's comments for `SUBTASK-5:` and edit the named file in
+`{{worktree_path}}` per the spec below. If no SUBTASK-5 line, close skipped.
+
+Spec:
+---
+{{spec_content}}
+---"""
+
+[[steps]]
+id = "step-implement-6"
+title = "Implement file assignment SUBTASK-6 in eval worktree"
+needs = ["step-orchestrate"]
+description = """
+You are an **implementer** agent. Your assignment is SUBTASK-6. Read step-
+orchestrate's comments for `SUBTASK-6:` and edit the named file in
+`{{worktree_path}}` per the spec below. If no SUBTASK-6 line, close skipped.
+
+Spec:
+---
+{{spec_content}}
+---"""
+
+[[steps]]
+id = "step-implement-7"
+title = "Implement file assignment SUBTASK-7 in eval worktree"
+needs = ["step-orchestrate"]
+description = """
+You are an **implementer** agent. Your assignment is SUBTASK-7. Read step-
+orchestrate's comments for `SUBTASK-7:` and edit the named file in
+`{{worktree_path}}` per the spec below. If no SUBTASK-7 line, close skipped.
+
+Spec:
+---
+{{spec_content}}
+---"""
+
+[[steps]]
+id = "step-implement-8"
+title = "Implement file assignment SUBTASK-8 in eval worktree"
+needs = ["step-orchestrate"]
+description = """
+You are an **implementer** agent. Your assignment is SUBTASK-8. Read step-
+orchestrate's comments for `SUBTASK-8:` and edit the named file in
+`{{worktree_path}}` per the spec below. If no SUBTASK-8 line, close skipped.
+
+Spec:
+---
+{{spec_content}}
+---"""
+
+[[steps]]
+id = "step-implement-9"
+title = "Implement file assignment SUBTASK-9 in eval worktree"
+needs = ["step-orchestrate"]
+description = """
+You are an **implementer** agent. Your assignment is SUBTASK-9. Read step-
+orchestrate's comments for `SUBTASK-9:` and edit the named file in
+`{{worktree_path}}` per the spec below. If no SUBTASK-9 line, close skipped.
+
+Spec:
+---
+{{spec_content}}
+---"""
+
+[[steps]]
+id = "step-implement-10"
+title = "Implement file assignment SUBTASK-10 in eval worktree"
+needs = ["step-orchestrate"]
+description = """
+You are an **implementer** agent. Your assignment is SUBTASK-10. Read step-
+orchestrate's comments for `SUBTASK-10:` and edit the named file in
+`{{worktree_path}}` per the spec below. If no SUBTASK-10 line, close skipped.
+
+Spec:
+---
+{{spec_content}}
+---"""
+
+[[steps]]
+id = "step-land"
+title = "Land: pytest + reconcile cross-cutting issues in eval worktree"
+needs = [
+    "step-implement-1",
+    "step-implement-2",
+    "step-implement-3",
+    "step-implement-4",
+    "step-implement-5",
+    "step-implement-6",
+    "step-implement-7",
+    "step-implement-8",
+    "step-implement-9",
+    "step-implement-10",
+]
+description = """
+You are the **treehugger** (reconciliation role) in an eval-mode orchestrator-
+workers flow. All 10 implementer beads have closed (some `completed`, some
+`skipped` if the case had fewer files than max-N). The implementers worked in
+isolation and may have introduced cross-cutting inconsistencies in
+`{{worktree_path}}`. Your job is to run the visible tests, reconcile any
+issues, and land.
+
+**Your lifecycle:**
+
+1. `bd show <this-bead-id>` then `bd update <this-bead-id> --claim`.
+
+2. `cd {{worktree_path}}`. Inspect what the implementers produced — read the
+   files they touched.
+
+3. Run pytest against the visible tests (the eval driver bind-mounts the case
+   read-only at `/home/agent/eval-case/`; tests live under
+   `/home/agent/eval-case/visible-tests/` and any worktree-local `tests/`):
+   ```bash
+   cd {{worktree_path}}
+   PYTHONPATH={{worktree_path}} pytest /home/agent/eval-case/visible-tests/ tests/ 2>&1 | tail -50
+   ```
+
+4. If tests are failing because of cross-cutting issues introduced by the
+   implementers (broken imports, shared-state drift, ABC contract violations,
+   enum or registry inconsistencies), RECONCILE them. Stay in scope — do not
+   add new features, do not rewrite implementer outputs; just fix the
+   inconsistencies. Re-run pytest until either all visible tests pass OR you
+   have made your best reconciliation pass.
+
+   Spec (for context, full enumeration of shared/excluded files):
+   ---
+   {{spec_content}}
+   ---
+
+5. Write a landing comment summarising the reconciliation:
+   ```bash
+   bd comment <this-bead-id> "Landed: <one-line summary, e.g. 'pytest 19/20 passing; reconciled imports in registry.py'>"
+   ```
+
+6. Close with `bd close <this-bead-id> --reason="landed"`.
+
+7. `gc runtime drain-ack`.
+
+**Exit criteria:** Bead is `closed` with reason `landed`; the worktree state is
+the final eval artifact (host-side scorer reads it after the container exits)."""

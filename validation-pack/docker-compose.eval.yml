@@ -1,0 +1,30 @@
+# Compose overlay for plan-evals C.2 (per-orchestrator runners).
+#
+# Composed alongside docker-compose.yml (gc shim) OR docker-compose.ntm.yml
+# (ntm shim) by scripts/eval-{gc,ntm}.sh:
+#
+#   docker compose \
+#       -f validation-pack/docker-compose.yml \
+#       -f validation-pack/docker-compose.eval.yml \
+#       -p vp-eval-<run-id> run --rm validation 08-eval-case
+#
+# Adds:
+#   - bind mount: $EVAL_CASE_DIR  (host) → /home/agent/eval-case      (ro)
+#   - bind mount: $EVAL_WORKTREE_DIR (host) → /home/agent/eval-worktree (rw)
+#   - env pass-through: EVAL_CASE_ID, EVAL_PATTERN, EVAL_FANOUT_DIR,
+#                       EVAL_FANOUT_EXCLUDE, EVAL_TIMEOUT_SECS
+#
+# Hermetic scenarios 00-07 never include this overlay, so their image stays
+# unchanged.
+
+services:
+  validation:
+    volumes:
+      - ${EVAL_CASE_DIR}:/home/agent/eval-case:ro
+      - ${EVAL_WORKTREE_DIR}:/home/agent/eval-worktree
+    environment:
+      EVAL_CASE_ID: "${EVAL_CASE_ID}"
+      EVAL_PATTERN: "${EVAL_PATTERN:-orchestrator-workers}"
+      EVAL_FANOUT_DIR: "${EVAL_FANOUT_DIR}"
+      EVAL_FANOUT_EXCLUDE: "${EVAL_FANOUT_EXCLUDE:-}"
+      EVAL_TIMEOUT_SECS: "${EVAL_TIMEOUT_SECS:-2000}"

@@ -42,8 +42,18 @@ bash "${SCENARIO_SCRIPT}" || DRIVER_RC=$?
 
 # Run verifier regardless — its output is useful for diagnosis even when the
 # driver failed.
+#
+# Exception: eval-case mode (EVAL_CASE_ID set) has no fixture predicate; the
+# pytest-pass-rate predicate runs host-side after container exit (see
+# docs/per-orchestrator-runners.md §1). Skip the verifier AND the bead-state
+# dump — the worktree is the artifact, not the bead DAG.
 VERIFIER_RC=0
-python3 "${PACK_ROOT}/scripts/verify_bead_state.py" --scenario "${SCENARIO_ID}" || VERIFIER_RC=$?
+if [[ -n "${EVAL_CASE_ID:-}" ]]; then
+    echo "===== run-scenario: eval-case mode (EVAL_CASE_ID=${EVAL_CASE_ID}); skipping verifier and bead-state dump =====" >&2
+    DEBUG_DUMP_BEADS=0
+else
+    python3 "${PACK_ROOT}/scripts/verify_bead_state.py" --scenario "${SCENARIO_ID}" || VERIFIER_RC=$?
+fi
 
 # Checkpoint: after verifier, before artifact capture (and exit).
 checkpoint verify
