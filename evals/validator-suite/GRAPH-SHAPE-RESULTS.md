@@ -107,16 +107,33 @@ var (added to `eval-graph-shape.sh` for this probe).
 
 ### Result
 
-| Library | N | idiom | persona | shape | overall |
-|---|---|---|---|---|---|
-| full library (baseline) | 10 | 10/10 | 0/10 | 0/10 | **0/10** |
-| stripped (fanout-only) | 5 | 5/5 | 5/5 | 5/5 | **5/5** |
+| Library | Model | N | idiom | persona | shape | overall |
+|---|---|---|---|---|---|---|
+| full library | sonnet | 10 | 10/10 | 0/10 | 0/10 | **0/10** |
+| stripped (fanout-only) | sonnet | 5 | 5/5 | 5/5 | 5/5 | **5/5** |
+| full library | opus | 10 | 10/10 | 10/10 | 10/10 | **10/10** |
+| stripped (fanout-only) | opus | 5 | 5/5 | 5/5 | 5/5 | **5/5** |
 
-**The bias is taught, not intrinsic.** When the library only models
-fire-and-forget, sonnet correctly produces the flat 7-leaf fan. The
-"add a coordinator" preference is *learned from the library's
-hierarchical examples* and applied even when those examples don't fit
-the case.
+**The bias is taught, not intrinsic — but only for sonnet.** When the
+library only models fire-and-forget, sonnet correctly produces the flat
+7-leaf fan. The "add a coordinator" preference is *learned from the
+library's hierarchical examples* and applied even when those examples
+don't fit the case.
+
+Opus is **library-insensitive**: full library and stripped library both
+yield perfect flat fans on validator-suite. Opus's structural judgment
+is robust against the library's framing in a way sonnet's isn't.
+
+This is a clean tier-distinction signal: **opus's architect-quality is
+library-independent; sonnet's is library-dependent.** Combined with the
+designless variant (opus IS spec-dependent for scope discipline), this
+gives a layered picture of where each tier's strengths and weaknesses
+sit:
+
+| Sensitivity | Opus | Sonnet |
+|---|---|---|
+| Spec content (file enumeration) | Yes (scope discipline) | Yes (worse) |
+| Library content (idiom examples) | No | Yes |
 
 ### Implication
 
