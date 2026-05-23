@@ -182,7 +182,7 @@ The most direct test of `position.md`'s "model-as-orchestrator" claim. Without i
 ### C — Bench completeness
 
 - **C.1**: `scripts/eval-sectioning.sh` — per-worker isolated worktrees + deterministic file-scoped collation (no LLM merge). The correct implementation of Anthropic's sectioning pattern; replaces naive-fanout as the canonical "isolation without merge" baseline.
-- **C.2**: Per-orchestrator runners — `scripts/eval-gc.sh`, `scripts/eval-ntm.sh`. Re-run the same patterns through validation-pack scenarios. Requires validation-pack refactor to take *external* eval cases (instead of hardcoded task briefs). Most complex item; treat as its own milestone if scope grows.
+- **C.2**: Per-orchestrator runners — `scripts/eval-gc.sh`, `scripts/eval-ntm.sh`. Re-run the same patterns through validation-pack scenarios. Requires validation-pack refactor to take *external* eval cases (instead of hardcoded task briefs). Most complex item; treat as its own milestone if scope grows. **Design fragment:** [`per-orchestrator-runners.md`](per-orchestrator-runners.md) (T-shirt: M).
 - **C.3**: Update the `Pattern-specific win conditions` table above to reflect empirics — naive-fanout is structurally broken; sectioning needs either isolation or merge; orch-workers wins both axes when state is shared.
 - **C.4**: Worker-contract length tracking — capture per-worker prompt and output token counts in result JSON, not just aggregates. Tests `position.md` claim 3 (short worker contracts) empirically.
 
