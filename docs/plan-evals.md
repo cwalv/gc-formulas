@@ -247,9 +247,31 @@ Initial runner infrastructure (`eval-ralph.sh`, `eval-fanout.sh`, `eval-scorer.p
 
 ### B — Pattern-selection eval — done
 
-`scripts/eval-planner.sh` shipped. Planner brief shows case spec + starting-state tree summary + pattern menu (ralph / fanout / orchworkers); returns JSON choice + reasoning. Dispatched runner's result is merged with planner fields (`planner_choice`, `planner_reasoning`, `planner_tokens_in`/`out`, `planner_model`). Driver aggregation surfaces a `planner_choices` distribution.
+`scripts/eval-planner.sh` shipped. Planner brief shows case spec + starting-state tree summary + pattern menu (ralph / fanout / sectioning / orchworkers); returns JSON choice + reasoning. Dispatched runner's result is merged with planner fields (`planner_choice`, `planner_reasoning`, `planner_tokens_in`/`out`, `planner_model`). Driver aggregation surfaces a `planner_choices` distribution.
 
 Smoke results (N=3 each case, opus workers, opus planner — collected pre-sonnet-switch): planner picked orchworkers 3/3 on both `cancel-method` and `validator-suite`. Consistent "cheap insurance" framing in the reasoning even when fanout would suffice. Documents the default-to-orchworkers bias that E1 (library-driven planner) is meant to probe.
+
+### B.2 — Graph-shape (architect) eval — done (fo-d5fh9)
+
+`scripts/eval-graph-shape.sh` shipped 2026-05-23. Plan-only architect eval: the planner is given a design doc + the choreography idioms library + the starting-state tree, and must produce a bead graph (idiom + nodes + deps). Scored against per-case `reference-graph.json` for semantic equivalence (idiom, per-persona node counts, dep topology). References can declare `idiom_alternates` — alternative shapes accepted as structurally sound — with the scorer surfacing both strict-primary and structurally-sound counts.
+
+Headline N=10 results:
+
+| Case | Opus structurally sound | Sonnet structurally sound | Failure modes |
+|---|---|---|---|
+| `enum-extension` (shared state) | 10/10 | 6/10 | Sonnet under-decomposes (batches 2 classes/worker, 3 reps) or picks plain fanout (1 rep). |
+| `validator-suite` (embarrassingly parallel) | 10/10 | 0/10 | Sonnet always adds an unneeded coordinator parent (over-structures). |
+
+Designless variant (N=5 each, layout hint stripped from spec.md):
+
+| Model | Sound (designless) | Notes |
+|---|---|---|
+| opus 4.7 | 3/5 | 2 reps pick plain fanout; opus loses the "shared state is separate from per-leaf work" signal when the layout enumeration is gone. |
+| sonnet 4.6 | 4/5 | sonnet's two-phase-commit default happens to land in the structurally-sound set for shared-state cases. |
+
+Implications:
+- Architect quality is a capability × prompt-quality interaction, not pure capability. Bullet lists of "files this work will touch" in design docs are load-bearing — they distinguish "fanout works" from "fanout will race-write."
+- Sonnet has a consistent "add structure" bias; correctable partway by explicit topology instructions (`EXTRA_INSTRUCTION` env var probe: 4/5 fix rate on validator-suite).
 
 ### C — Bench completeness
 
