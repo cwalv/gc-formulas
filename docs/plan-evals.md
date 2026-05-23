@@ -74,12 +74,15 @@ Corpus cases that *don't* require fan-out (single-file changes, linear refactors
 Per case, per run:
 
 - **Wall-clock** to terminal state.
-- **Token count** across all LLM calls (planner + workers).
+- **Per-turn tokens** (`tokens_in` / `tokens_out`): the incremental cost of the LLM call. This is what the API *bills* you per turn — small because the API prompt-caches the system prompt + tool definitions across turns.
+- **Contract length** (`cache_creation_input_tokens` + `cache_read_input_tokens`): the full context the model actually saw, including the cached prefix. **This is the load-bearing number for `position.md` claim 3** ("worker contracts stay short"). Per-turn `tokens_in` is misleading — typical worker per-turn input is 5-20 tokens, but the *actual contract* (brief + spec + tool defs + history) is 11K-30K tokens.
 - **Visible-test pass rate** (the visible assertion script the planner sees as the spec).
 - **Hidden-test pass rate** (assertions only the scorer sees — proxies quality).
 - **Round-over-round delta** (for iterative patterns only — improvement between attempts).
 
 Each case run multiple times (5-10) to get distributions, not single points.
+
+**Cache fields landed 2026-05-23** (fo-vgam1 / C.4 refinement). All four worker-pattern runners (`ralph`, `fanout`, `sectioning`, `orchworkers`) emit `cache_creation_input_tokens` + `cache_read_input_tokens` at the top level of result JSON, and the per-worker records inside `workers[]`. The driver's aggregate surfaces `median_cache_creation_input_tokens` + `median_cache_read_input_tokens` per pattern. Schema is additive — pre-existing `tokens_in`/`tokens_out` semantics (per-turn cost) preserved for back-compat.
 
 ## Model calibration
 
@@ -253,7 +256,7 @@ Smoke results (N=3 each case, opus workers, opus planner — collected pre-sonne
 - **C.1** ✓: `scripts/eval-sectioning.sh` — per-worker isolated worktrees + deterministic file-scoped collation, no LLM merge. The correct implementation of Anthropic's sectioning pattern. On `enum-extension` it produces the "individually correct but cross-file invariants broken" failure mode (3/10 all-pass; one rep had 20/20 visible + 0/2 hidden).
 - **C.2** ✓ (scope only): Per-orchestrator runners design fragment landed — see [`per-orchestrator-runners.md`](per-orchestrator-runners.md). T-shirt: M. Implementation deferred; 8 known blockers documented.
 - **C.3** ✓ (this section): Pattern-specific win conditions table revised to reflect empirics; "Findings to date" rewritten with sonnet-baseline data; case-level `RESULTS.md` files updated.
-- **C.4** ✓ (folded into A.4): Per-worker token tracking in result JSON. **Caveat:** the `tokens_in`/`tokens_out` come from claude's per-turn `usage` field, not cache-creation/cache-read totals — measures per-turn cost, not full contract length. Refinement needed if measuring claim 3 (short worker contracts) is load-bearing for the position.
+- **C.4** ✓ (folded into A.4): Per-worker token tracking in result JSON. ~~Caveat: the `tokens_in`/`tokens_out` come from claude's per-turn `usage` field, not cache-creation/cache-read totals — measures per-turn cost, not full contract length. Refinement needed if measuring claim 3 (short worker contracts) is load-bearing for the position.~~ **Resolved 2026-05-23 (fo-vgam1):** cache fields now emitted at both per-worker and per-run level across all four worker runners; aggregate driver surfaces medians. Single-rep smoke on `fanout enum-extension` (sonnet workers) recorded per-worker `cache_creation_input_tokens` of 11K-29K (the actual contract length per worker), vs per-turn `tokens_in` of 5-22 (the per-turn billing cost). The 1000× gap confirms why the per-turn number was misleading for claim 3.
 
 ### D1 — Scale the evidence base
 

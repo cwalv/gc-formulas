@@ -73,6 +73,8 @@ One representative `workers` array from a passing run
 
 `tokens_in` here is the prompt cost *for the current model turn*, not including cache hits or the spec text bundled into the system prompt — so it's not a measure of contract length, just of incremental turn cost. The wider per-worker visibility is the additive value: we can now see per-file output-token spend and reason about which files are doing the most work.
 
+**Update (fo-vgam1, 2026-05-23):** worker records now also include `cache_creation_input_tokens` + `cache_read_input_tokens`. Those numbers reflect the **full contract length** the worker actually saw (brief + cached system prompt + tool defs). On the sister `enum-extension` case under fanout/sonnet, per-worker `cache_creation` ranged 11K-29K tokens — vs per-turn `tokens_in` of 5-22. The per-turn field underrepresents the real contract by ~1000×. For `position.md` claim 3 ("worker contracts stay short"), the cache fields are the load-bearing measurement; the per-turn fields measure billing, not context volume.
+
 ## Reproducing
 
 ```sh

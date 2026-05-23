@@ -176,44 +176,22 @@ ${SPEC_CONTENT}"
   CLAUDE_EXIT_CODE="$ITER_EXIT_CODE"
   echo "    Claude iter ${iter} exited with code: ${ITER_EXIT_CODE}" >&2
 
-  # Accumulate tokens from this iteration; capture worker_model from iter 1.
+  # Accumulate tokens from this iteration (incl. cache fields per fo-vgam1);
+  # capture worker_model from iter 1.
   if command -v python3 &>/dev/null && [[ -f "${CLAUDE_OUTPUT_FILE}" ]]; then
-    read -r ITER_TOKENS_IN ITER_TOKENS_OUT < <(
-      python3 - "${CLAUDE_OUTPUT_FILE}" <<'PYEOF'
-import sys, json
-try:
-    with open(sys.argv[1]) as f:
-        raw = f.read().strip()
-    data = json.loads(raw)
-    usage = data.get("usage", {})
-    tokens_in = usage.get("input_tokens", 0) or 0
-    tokens_out = usage.get("output_tokens", 0) or 0
-    print(tokens_in, tokens_out)
-except Exception:
-    print(0, 0)
-PYEOF
-    ) || true
+    ITER_USAGE_JSON="$(python3 "${SCRIPT_DIR}/eval-extract-usage.py" "${CLAUDE_OUTPUT_FILE}" 2>/dev/null || echo '{}')"
+    ITER_TOKENS_IN="$(python3 -c "import json,sys; print(json.loads(sys.argv[1]).get('input_tokens', 0))" "$ITER_USAGE_JSON")"
+    ITER_TOKENS_OUT="$(python3 -c "import json,sys; print(json.loads(sys.argv[1]).get('output_tokens', 0))" "$ITER_USAGE_JSON")"
+    ITER_CACHE_CREATE="$(python3 -c "import json,sys; print(json.loads(sys.argv[1]).get('cache_creation_input_tokens', 0))" "$ITER_USAGE_JSON")"
+    ITER_CACHE_READ="$(python3 -c "import json,sys; print(json.loads(sys.argv[1]).get('cache_read_input_tokens', 0))" "$ITER_USAGE_JSON")"
+
     TOKENS_IN=$(( TOKENS_IN + ITER_TOKENS_IN ))
     TOKENS_OUT=$(( TOKENS_OUT + ITER_TOKENS_OUT ))
+    CACHE_CREATE_TOTAL=$(( ${CACHE_CREATE_TOTAL:-0} + ITER_CACHE_CREATE ))
+    CACHE_READ_TOTAL=$(( ${CACHE_READ_TOTAL:-0} + ITER_CACHE_READ ))
 
-    # Extract worker_model from the first iteration's modelUsage keys.
-    # modelUsage is a dict keyed by model ID; we take the first key.
     if [[ $iter -eq 1 && -z "$OBSERVED_MODEL" ]]; then
-      OBSERVED_MODEL="$(python3 - "${CLAUDE_OUTPUT_FILE}" <<'PYEOF'
-import sys, json
-try:
-    with open(sys.argv[1]) as f:
-        raw = f.read().strip()
-    data = json.loads(raw)
-    model_usage = data.get("modelUsage", {})
-    if model_usage:
-        print(next(iter(model_usage)))
-    else:
-        print("")
-except Exception:
-    print("")
-PYEOF
-      )" || true
+      OBSERVED_MODEL="$(python3 -c "import json,sys; print(json.loads(sys.argv[1]).get('model', ''))" "$ITER_USAGE_JSON")" || true
     fi
   fi
 
@@ -303,6 +281,8 @@ result = {
     "exit_code":        int("${CLAUDE_EXIT_CODE}"),
     "iterations":       int("${ITERATIONS}"),
     "max_iterations":   int("${MAX_ITERS}"),
+    "cache_creation_input_tokens": int("${CACHE_CREATE_TOTAL:-0}"),
+    "cache_read_input_tokens":     int("${CACHE_READ_TOTAL:-0}"),
 }
 
 worker_model = "${OBSERVED_MODEL}".strip()

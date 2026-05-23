@@ -152,6 +152,11 @@ def aggregate(case_id: str, pattern: str, results: list[dict]) -> dict:
         if r["exit_code"] == 0 and r["visible_pass"] == r["visible_total"]
     )
 
+    # fo-vgam1: cache fields (load-bearing for position.md claim 3 — contract
+    # length is cache_creation + cache_read, not the per-turn input_tokens).
+    cache_create = [r.get("cache_creation_input_tokens", 0) or 0 for r in results]
+    cache_read   = [r.get("cache_read_input_tokens", 0) or 0 for r in results]
+
     agg = {
         "case_id": case_id,
         "pattern": pattern,
@@ -159,6 +164,8 @@ def aggregate(case_id: str, pattern: str, results: list[dict]) -> dict:
         "median_wall_clock_secs": statistics.median(wall_clocks),
         "mean_tokens_in": statistics.mean(tokens_in) if tokens_in else 0.0,
         "mean_tokens_out": statistics.mean(tokens_out) if tokens_out else 0.0,
+        "median_cache_creation_input_tokens": statistics.median(cache_create) if cache_create else 0,
+        "median_cache_read_input_tokens":     statistics.median(cache_read)   if cache_read   else 0,
         "visible_pass_rate": [median_vp, median_vt],
         "hidden_pass_rate": [median_hp, median_ht],
         "all_passed_count": all_passed,

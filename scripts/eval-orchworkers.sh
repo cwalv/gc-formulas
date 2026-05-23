@@ -253,71 +253,45 @@ for PID in "${PIDS[@]}"; do
         echo "[orchworkers] Worker for ${ENTITY_BASENAME} exited with code ${AGENT_EXIT}" >&2
     fi
 
-    # Per-worker tokens default to 0 when parsing fails; emit one entry per
-    # spawned worker so the workers array is parallel to ENTITY_FILES.
     AGENT_IN_N=0
     AGENT_OUT_N=0
+    AGENT_CACHE_CREATE=0
+    AGENT_CACHE_READ=0
 
-    # Try to parse token counts and worker_model from JSON output
     if [[ -f "${AGENT_OUT}" ]] && command -v python3 &>/dev/null; then
-        AGENT_IN="$(python3 -c "
-import sys, json
-try:
-    data = json.load(open('${AGENT_OUT}'))
-    usage = data.get('usage', {})
-    print(usage.get('input_tokens', usage.get('prompt_tokens', '')))
-except Exception:
-    print('')
-" 2>/dev/null)"
-        AGENT_OUT_TOK="$(python3 -c "
-import sys, json
-try:
-    data = json.load(open('${AGENT_OUT}'))
-    usage = data.get('usage', {})
-    print(usage.get('output_tokens', usage.get('completion_tokens', '')))
-except Exception:
-    print('')
-" 2>/dev/null)"
+        USAGE_JSON="$(python3 "${REPO_ROOT}/scripts/eval-extract-usage.py" "${AGENT_OUT}" 2>/dev/null || echo '{}')"
+        AGENT_IN_N="$(python3 -c "import json,sys; print(json.loads(sys.argv[1]).get('input_tokens', 0))" "$USAGE_JSON")"
+        AGENT_OUT_N="$(python3 -c "import json,sys; print(json.loads(sys.argv[1]).get('output_tokens', 0))" "$USAGE_JSON")"
+        AGENT_CACHE_CREATE="$(python3 -c "import json,sys; print(json.loads(sys.argv[1]).get('cache_creation_input_tokens', 0))" "$USAGE_JSON")"
+        AGENT_CACHE_READ="$(python3 -c "import json,sys; print(json.loads(sys.argv[1]).get('cache_read_input_tokens', 0))" "$USAGE_JSON")"
 
-        if [[ -n "$AGENT_IN" && "$AGENT_IN" =~ ^[0-9]+$ ]]; then
-            AGENT_IN_N="$AGENT_IN"
-            TOTAL_TOKENS_IN=$((TOTAL_TOKENS_IN + AGENT_IN))
+        if [[ "$AGENT_IN_N" =~ ^[0-9]+$ && "$AGENT_IN_N" -gt 0 ]]; then
+            TOTAL_TOKENS_IN=$((TOTAL_TOKENS_IN + AGENT_IN_N))
         else
             TOKENS_PARTIAL=1
         fi
-        if [[ -n "$AGENT_OUT_TOK" && "$AGENT_OUT_TOK" =~ ^[0-9]+$ ]]; then
-            AGENT_OUT_N="$AGENT_OUT_TOK"
-            TOTAL_TOKENS_OUT=$((TOTAL_TOKENS_OUT + AGENT_OUT_TOK))
+        if [[ "$AGENT_OUT_N" =~ ^[0-9]+$ && "$AGENT_OUT_N" -gt 0 ]]; then
+            TOTAL_TOKENS_OUT=$((TOTAL_TOKENS_OUT + AGENT_OUT_N))
         else
             TOKENS_PARTIAL=1
         fi
 
-        # Capture worker_model from the first agent output that has modelUsage.
         if [[ -z "$OBSERVED_MODEL" ]]; then
-            OBSERVED_MODEL="$(python3 -c "
-import sys, json
-try:
-    data = json.load(open('${AGENT_OUT}'))
-    model_usage = data.get('modelUsage', {})
-    if model_usage:
-        print(next(iter(model_usage)))
-    else:
-        print('')
-except Exception:
-    print('')
-" 2>/dev/null)" || true
+            OBSERVED_MODEL="$(python3 -c "import json,sys; print(json.loads(sys.argv[1]).get('model', ''))" "$USAGE_JSON")" || true
         fi
     else
         TOKENS_PARTIAL=1
     fi
 
-    # Append per-worker record (json-safe via python).
+    # Append per-worker record (cache fields surface the real contract length per claim 3).
     python3 -c "
 import json
 print(json.dumps({
     'file': '${ENTITY_BASENAME}',
     'tokens_in': ${AGENT_IN_N},
     'tokens_out': ${AGENT_OUT_N},
+    'cache_creation_input_tokens': ${AGENT_CACHE_CREATE},
+    'cache_read_input_tokens': ${AGENT_CACHE_READ},
 }))
 " >> "${WORKERS_JSONL}"
 done
@@ -385,55 +359,24 @@ if [[ "$MERGE_EXIT" -ne 0 ]]; then
     OVERALL_EXIT=$MERGE_EXIT
 fi
 
-# Parse merge step token counts
+# Parse merge step token counts (incl. cache fields for claim 3 / fo-vgam1).
 MERGE_TOKENS_IN=0
 MERGE_TOKENS_OUT=0
+MERGE_CACHE_CREATE=0
+MERGE_CACHE_READ=0
 
 if [[ -f "${MERGE_OUT}" ]] && command -v python3 &>/dev/null; then
-    MERGE_IN_RAW="$(python3 -c "
-import sys, json
-try:
-    data = json.load(open('${MERGE_OUT}'))
-    usage = data.get('usage', {})
-    print(usage.get('input_tokens', usage.get('prompt_tokens', '')))
-except Exception:
-    print('')
-" 2>/dev/null)"
-    MERGE_OUT_RAW="$(python3 -c "
-import sys, json
-try:
-    data = json.load(open('${MERGE_OUT}'))
-    usage = data.get('usage', {})
-    print(usage.get('output_tokens', usage.get('completion_tokens', '')))
-except Exception:
-    print('')
-" 2>/dev/null)"
+    MERGE_USAGE_JSON="$(python3 "${REPO_ROOT}/scripts/eval-extract-usage.py" "${MERGE_OUT}" 2>/dev/null || echo '{}')"
+    MERGE_TOKENS_IN="$(python3 -c "import json,sys; print(json.loads(sys.argv[1]).get('input_tokens', 0))" "$MERGE_USAGE_JSON")"
+    MERGE_TOKENS_OUT="$(python3 -c "import json,sys; print(json.loads(sys.argv[1]).get('output_tokens', 0))" "$MERGE_USAGE_JSON")"
+    MERGE_CACHE_CREATE="$(python3 -c "import json,sys; print(json.loads(sys.argv[1]).get('cache_creation_input_tokens', 0))" "$MERGE_USAGE_JSON")"
+    MERGE_CACHE_READ="$(python3 -c "import json,sys; print(json.loads(sys.argv[1]).get('cache_read_input_tokens', 0))" "$MERGE_USAGE_JSON")"
 
-    if [[ -n "$MERGE_IN_RAW" && "$MERGE_IN_RAW" =~ ^[0-9]+$ ]]; then
-        MERGE_TOKENS_IN="$MERGE_IN_RAW"
-    else
-        TOKENS_PARTIAL=1
-    fi
-    if [[ -n "$MERGE_OUT_RAW" && "$MERGE_OUT_RAW" =~ ^[0-9]+$ ]]; then
-        MERGE_TOKENS_OUT="$MERGE_OUT_RAW"
-    else
-        TOKENS_PARTIAL=1
-    fi
+    if [[ ! "$MERGE_TOKENS_IN" =~ ^[0-9]+$ || "$MERGE_TOKENS_IN" -eq 0 ]]; then TOKENS_PARTIAL=1; fi
+    if [[ ! "$MERGE_TOKENS_OUT" =~ ^[0-9]+$ || "$MERGE_TOKENS_OUT" -eq 0 ]]; then TOKENS_PARTIAL=1; fi
 
-    # Also try to capture model from merge output if we didn't get it from workers
     if [[ -z "$OBSERVED_MODEL" ]]; then
-        OBSERVED_MODEL="$(python3 -c "
-import sys, json
-try:
-    data = json.load(open('${MERGE_OUT}'))
-    model_usage = data.get('modelUsage', {})
-    if model_usage:
-        print(next(iter(model_usage)))
-    else:
-        print('')
-except Exception:
-    print('')
-" 2>/dev/null)" || true
+        OBSERVED_MODEL="$(python3 -c "import json,sys; print(json.loads(sys.argv[1]).get('model', ''))" "$MERGE_USAGE_JSON")" || true
     fi
 else
     TOKENS_PARTIAL=1
@@ -502,6 +445,9 @@ try:
 except FileNotFoundError:
     pass
 
+workers_cache_create = sum((w.get("cache_creation_input_tokens") or 0) for w in workers)
+workers_cache_read   = sum((w.get("cache_read_input_tokens")     or 0) for w in workers)
+
 result = {
     "run_id": "${RUN_ID}",
     "case_id": "${CASE_ID}",
@@ -509,8 +455,12 @@ result = {
     "wall_clock_secs": ${WALL_SECS},
     "tokens_in": ${TOTAL_TOKENS_IN},
     "tokens_out": ${TOTAL_TOKENS_OUT},
+    "cache_creation_input_tokens": workers_cache_create + ${MERGE_CACHE_CREATE},
+    "cache_read_input_tokens":     workers_cache_read   + ${MERGE_CACHE_READ},
     "merge_tokens_in": ${MERGE_TOKENS_IN},
     "merge_tokens_out": ${MERGE_TOKENS_OUT},
+    "merge_cache_creation_input_tokens": ${MERGE_CACHE_CREATE},
+    "merge_cache_read_input_tokens":     ${MERGE_CACHE_READ},
     "workers": workers,
     "visible_pass": ${VISIBLE_PASS},
     "visible_total": ${VISIBLE_TOTAL},

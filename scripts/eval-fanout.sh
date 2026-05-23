@@ -238,69 +238,45 @@ for PID in "${PIDS[@]}"; do
     # for every worker so the workers array is parallel to ENTITY_FILES.
     AGENT_IN_N=0
     AGENT_OUT_N=0
+    AGENT_CACHE_CREATE=0
+    AGENT_CACHE_READ=0
 
-    # Try to parse token counts and worker_model from JSON output
     if [[ -f "${AGENT_OUT}" ]] && command -v python3 &>/dev/null; then
-        AGENT_IN="$(python3 -c "
-import sys, json
-try:
-    data = json.load(open('${AGENT_OUT}'))
-    # claude --output-format json puts usage under 'usage' or 'cost_usd' siblings
-    usage = data.get('usage', {})
-    print(usage.get('input_tokens', usage.get('prompt_tokens', '')))
-except Exception:
-    print('')
-" 2>/dev/null)"
-        AGENT_OUT_TOK="$(python3 -c "
-import sys, json
-try:
-    data = json.load(open('${AGENT_OUT}'))
-    usage = data.get('usage', {})
-    print(usage.get('output_tokens', usage.get('completion_tokens', '')))
-except Exception:
-    print('')
-" 2>/dev/null)"
+        USAGE_JSON="$(python3 "${REPO_ROOT}/scripts/eval-extract-usage.py" "${AGENT_OUT}" 2>/dev/null || echo '{}')"
+        AGENT_IN_N="$(python3 -c "import json,sys; print(json.loads(sys.argv[1]).get('input_tokens', 0))" "$USAGE_JSON")"
+        AGENT_OUT_N="$(python3 -c "import json,sys; print(json.loads(sys.argv[1]).get('output_tokens', 0))" "$USAGE_JSON")"
+        AGENT_CACHE_CREATE="$(python3 -c "import json,sys; print(json.loads(sys.argv[1]).get('cache_creation_input_tokens', 0))" "$USAGE_JSON")"
+        AGENT_CACHE_READ="$(python3 -c "import json,sys; print(json.loads(sys.argv[1]).get('cache_read_input_tokens', 0))" "$USAGE_JSON")"
 
-        if [[ -n "$AGENT_IN" && "$AGENT_IN" =~ ^[0-9]+$ ]]; then
-            AGENT_IN_N="$AGENT_IN"
-            TOTAL_TOKENS_IN=$((TOTAL_TOKENS_IN + AGENT_IN))
+        if [[ "$AGENT_IN_N" =~ ^[0-9]+$ && "$AGENT_IN_N" -gt 0 ]]; then
+            TOTAL_TOKENS_IN=$((TOTAL_TOKENS_IN + AGENT_IN_N))
         else
             TOKENS_PARTIAL=1
         fi
-        if [[ -n "$AGENT_OUT_TOK" && "$AGENT_OUT_TOK" =~ ^[0-9]+$ ]]; then
-            AGENT_OUT_N="$AGENT_OUT_TOK"
-            TOTAL_TOKENS_OUT=$((TOTAL_TOKENS_OUT + AGENT_OUT_TOK))
+        if [[ "$AGENT_OUT_N" =~ ^[0-9]+$ && "$AGENT_OUT_N" -gt 0 ]]; then
+            TOTAL_TOKENS_OUT=$((TOTAL_TOKENS_OUT + AGENT_OUT_N))
         else
             TOKENS_PARTIAL=1
         fi
 
-        # Capture worker_model from the first agent output that has modelUsage.
-        # All workers use the same default model, so one is sufficient.
         if [[ -z "$OBSERVED_MODEL" ]]; then
-            OBSERVED_MODEL="$(python3 -c "
-import sys, json
-try:
-    data = json.load(open('${AGENT_OUT}'))
-    model_usage = data.get('modelUsage', {})
-    if model_usage:
-        print(next(iter(model_usage)))
-    else:
-        print('')
-except Exception:
-    print('')
-" 2>/dev/null)" || true
+            OBSERVED_MODEL="$(python3 -c "import json,sys; print(json.loads(sys.argv[1]).get('model', ''))" "$USAGE_JSON")" || true
         fi
     else
         TOKENS_PARTIAL=1
     fi
 
-    # Append per-worker record (json-safe via python).
+    # Append per-worker record. The cache fields are what claim 3
+    # (worker contracts stay short) actually measures; tokens_in/out remain
+    # for back-compat with prior result-JSON consumers.
     python3 -c "
 import json
 print(json.dumps({
     'file': '${ENTITY_BASENAME}',
     'tokens_in': ${AGENT_IN_N},
     'tokens_out': ${AGENT_OUT_N},
+    'cache_creation_input_tokens': ${AGENT_CACHE_CREATE},
+    'cache_read_input_tokens': ${AGENT_CACHE_READ},
 }))
 " >> "${WORKERS_JSONL}"
 done
@@ -362,6 +338,10 @@ try:
 except FileNotFoundError:
     pass
 
+# Sum cache fields across the worker records (parallels TOTAL_TOKENS_IN/OUT).
+cache_create_total = sum((w.get("cache_creation_input_tokens") or 0) for w in workers)
+cache_read_total   = sum((w.get("cache_read_input_tokens")     or 0) for w in workers)
+
 result = {
     "run_id": "${RUN_ID}",
     "case_id": "${CASE_ID}",
@@ -369,6 +349,8 @@ result = {
     "wall_clock_secs": ${WALL_SECS},
     "tokens_in": ${TOTAL_TOKENS_IN},
     "tokens_out": ${TOTAL_TOKENS_OUT},
+    "cache_creation_input_tokens": cache_create_total,
+    "cache_read_input_tokens":     cache_read_total,
     "workers": workers,
     "visible_pass": ${VISIBLE_PASS},
     "visible_total": ${VISIBLE_TOTAL},
