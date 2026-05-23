@@ -1,4 +1,4 @@
 {
   "dir": "validators",
-  "exclude": ["base.py", "__init__.py"]
+  "exclude": ["base.py", "__init__.py", "registry.py"]
 }
