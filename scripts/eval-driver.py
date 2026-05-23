@@ -4,7 +4,7 @@ eval-driver.py — runs an eval runner N times and aggregates per-run results.
 
 Usage:
     python3 scripts/eval-driver.py --case <case-id> \
-        --pattern {ralph,fanout,sectioning,orchworkers} --n 10 [--output-dir DIR]
+        --pattern {ralph,fanout,sectioning,orchworkers,planner} --n 10 [--output-dir DIR]
 
 The driver invokes:
     bash scripts/eval-<pattern>.sh <case-id> --output-dir <dir> --run-id <run-id>
@@ -13,12 +13,17 @@ Each runner is expected to write <dir>/results-<run-id>.json matching the locked
 per-run schema from epic fo-ghqjh.  If the runner exits non-zero the run is
 recorded as failed (exit_code != 0) but the driver continues.
 
+For --pattern planner (epic fo-6i6mt.2), the aggregate additionally reports
+the per-pattern selection distribution under "planner_choices", e.g.:
+    {"orchworkers": 8, "fanout": 2, "ralph": 0}
+
 Aggregate JSON is written to:
     <output-dir>/aggregate-<pattern>-<case>-<timestamp>.json
 and also emitted on stdout.
 """
 
 import argparse
+import collections
 import json
 import pathlib
 import statistics
@@ -37,7 +42,7 @@ def parse_args():
     p.add_argument(
         "--pattern",
         required=True,
-        help="Runner pattern name (ralph, fanout, sectioning, orchworkers)",
+        help="Runner pattern name (ralph, fanout, sectioning, orchworkers, planner)",
     )
     p.add_argument("--n", type=int, required=True, help="Number of runs")
     p.add_argument(
@@ -147,7 +152,7 @@ def aggregate(case_id: str, pattern: str, results: list[dict]) -> dict:
         if r["exit_code"] == 0 and r["visible_pass"] == r["visible_total"]
     )
 
-    return {
+    agg = {
         "case_id": case_id,
         "pattern": pattern,
         "n_runs": n,
@@ -158,6 +163,24 @@ def aggregate(case_id: str, pattern: str, results: list[dict]) -> dict:
         "hidden_pass_rate": [median_hp, median_ht],
         "all_passed_count": all_passed,
     }
+
+    # For the planner pattern, also report the distribution of pattern choices
+    # so it's obvious from the aggregate alone "planner chose orchworkers 8/10
+    # times for validator-suite" (acceptance criterion 4, epic fo-6i6mt.2).
+    if pattern == "planner":
+        counter: collections.Counter[str] = collections.Counter()
+        for r in results:
+            choice = r.get("planner_choice") or ""
+            if choice:
+                counter[choice] += 1
+            else:
+                counter["__missing__"] += 1
+        # Sort by count desc, then name asc for stable output.
+        agg["planner_choices"] = dict(
+            sorted(counter.items(), key=lambda kv: (-kv[1], kv[0]))
+        )
+
+    return agg
 
 
 # ---------------------------------------------------------------------------
