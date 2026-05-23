@@ -62,9 +62,12 @@ def _find_pytest() -> list[str]:
 # Parsing
 # ---------------------------------------------------------------------------
 
-_SUMMARY_RE = re.compile(
-    r"(?:(\d+) passed)?[,\s]*(?:(\d+) failed)?[,\s]*(?:(\d+) error(?:ed|s)?)?",
-)
+# pytest reorders the summary when failures exist ("1 failed, 25 passed" not
+# "25 passed, 1 failed") — search each count independently so order doesn't
+# matter. Previously a positional regex caught only the first token.
+_PASSED_RE = re.compile(r"(\d+) passed")
+_FAILED_RE = re.compile(r"(\d+) failed")
+_ERRORS_RE = re.compile(r"(\d+) error(?:ed|s)?")
 _RESULT_LINE_RE = re.compile(r"=+ (.+?) in [\d.]+s =+$", re.MULTILINE)
 
 
@@ -91,13 +94,16 @@ def _parse_counts(output: str, returncode: int) -> tuple[int, int]:
     if "no tests ran" in summary or not summary:
         return 0, 0
 
-    m = _SUMMARY_RE.search(summary)
-    if not m:
-        return 0, 0
+    p_m = _PASSED_RE.search(summary)
+    f_m = _FAILED_RE.search(summary)
+    e_m = _ERRORS_RE.search(summary)
 
-    passed = int(m.group(1)) if m.group(1) else 0
-    failed = int(m.group(2)) if m.group(2) else 0
-    errors = int(m.group(3)) if m.group(3) else 0
+    passed = int(p_m.group(1)) if p_m else 0
+    failed = int(f_m.group(1)) if f_m else 0
+    errors = int(e_m.group(1)) if e_m else 0
+
+    if passed + failed + errors == 0:
+        return 0, 0
 
     total = passed + failed + errors
     return passed, total
