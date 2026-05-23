@@ -147,6 +147,34 @@ not *expansion* of the menu.
 See `evals/enum-extension/GRAPH-SHAPE-RESULTS.md` "Stripped-library
 variant" for the enumeration-constraint experiment.
 
+### Library breadth vs. correctness — sonnet's continuum
+
+Three points on the library-breadth axis for sonnet on validator-suite:
+
+| Library | Idioms offered | Sound rate (validator-suite) |
+|---|---|---|
+| Full (`choreography-idioms.md`) | 5 (fanout + 4 hierarchical) | 0/10 |
+| Half (`evals/_probes/idioms-half.md`) | 2 (fanout + synthesis-pipeline) | 3/5 |
+| Stripped (`evals/_probes/idioms-fanout-only.md`) | 1 (fanout only) | 5/5 |
+
+The "add structure" bias **scales with the number of coordinated idioms
+offered.** Even when sonnet has only two options on validator-suite, it
+picks synthesis-pipeline 2/5 — adding a merger that has nothing to merge.
+The only library variant where sonnet reliably produces a flat fan on an
+embarrassingly-parallel case is the one that doesn't *have* a coordinated
+alternative.
+
+For enum-extension (shared state), sonnet with half library is 5/5
+perfect synthesis-pipeline — without two-phase-commit available, it
+defaults cleanly to synthesis-pipeline.
+
+The practical implication: **per-case library curation is the path to
+reliable sonnet-tier architect quality.** A pre-routing step that
+decides "this case has shared state, show synthesis-pipeline; this case
+doesn't, show only fanout" would let sonnet hit 5/5 on both. Without
+that routing, sonnet's structural bias leaks proportionally to how many
+coordinated idioms it sees.
+
 ### Implication
 
 The choreography-idioms library is doing real work — and the work is
