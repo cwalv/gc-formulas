@@ -199,6 +199,24 @@ Sonnet sits at the Goldilocks tier (independently confirmed in Gemini's review �
 - [`evals/validator-suite/RESULTS.md`](../evals/validator-suite/RESULTS.md) — case-level write-up.
 - [`choreography-idioms.md`](choreography-idioms.md) — pattern templates as graph shapes (the canonical library E1 would draw from).
 
+## What the bench actually tests (orchestrator vs choreographer)
+
+The `Feedback (gemini)` section below distinguishes **orchestration** (a single conductor reading from a fixed score) from **choreography** (skilled performers reading the room and adapting). `choreography-idioms.md` operationalizes that distinction as graph primitives. Applied to the Phase A / Phase B / Phase C model:
+
+| Phase | Direction | Model role | What the bench tests today |
+|---|---|---|---|
+| A → B (design → graph) | Top-down | **Orchestrator** — the TL produces a coherent decomposition from a design doc | Partial — `eval-planner.sh` tests "pick a pattern given a case," which is a slice of B |
+| B → C (graph → execution) | Distributed | **Choreographer** — workers read the graph, claim, react, escalate, spawn new beads | **Not tested.** Our "workers" are bash-parallelized `claude -p` subprocesses on a shared filesystem, not bd-graph participants. They can't read each other's beads, can't escalate, can't spawn new beads dynamically. |
+
+This is the honest gap. The current bench's "patterns" (fanout / sectioning / orchworkers) are **static decomposition followed by isolated parallel execution** — neither phase rigorously tested. The pattern-task-fit findings above survive any reframing (they're real measurements), but they're testing something weaker than `position.md`'s claims.
+
+What's missing:
+
+- **Phase B (orchestrator) eval**: score the *graph shape* the TL produces from a design doc. Cheap (no execution, just plan-only scoring). Tests "did the model decompose well." Currently missing.
+- **Phase C (choreographer) eval**: workers that read other beads, claim work, escalate to TL when blocked, spawn child beads dynamically. Requires substrate (real bd-graph primitives, not bash). Equivalent to milestone C.2 — per-orchestrator runners through bd / gc / ntm. This is the bridge from "bench-toys" to actually testing the position's claim that orchestration emerges from substrate primitives.
+
+Implication: **C.2 (per-orchestrator runners) is more central than the original "scope only" framing suggested.** It's not "later cleanup"; it's the substrate prerequisite for testing the choreographer half of the architecture at all. See `per-orchestrator-runners.md` for the design fragment.
+
 ## Milestones
 
 ### M1 — done

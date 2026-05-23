@@ -6,6 +6,8 @@ Multi-agent coding workflows should use **model-as-orchestrator with substrate-c
 
 This is a contrarian position. Gascity's graph.v2, NTM's pipeline, and most TOML/YAML formula DSLs are workflow-runtime-shaped. The position is that they're structurally wrong: they constrain exactly what better models are getting better at — decomposition, ordering, retry judgment — and pay ongoing maintenance costs for ambition that model improvement is erasing.
 
+> **Terminology note (open):** "Model-as-orchestrator" understates the architecture's actual claim. The TL producing a graph from a design doc is orchestration (top-down, centralized — Phase A → B). The workers reading the graph and adapting alongside each other is **choreography** (distributed, locally reactive — Phase B → C). Both phases are present; the position covers both. The choreographer framing — from `choreography-idioms.md` and Gemini's review — is sharper for the execution layer specifically. A more accurate title might be "model-as-orchestrator-and-choreographer." The rename is held until D3 (position cash-out) when there's empirical evidence for both halves; see `plan-evals.md` "What the bench actually tests" for what's currently measured vs. claimed.
+
 Full narrative: [`archive/agent-orchestration-architecture.md`](archive/agent-orchestration-architecture.md). Load-bearing principles: [`principles.md`](principles.md).
 
 ## Five testable claims
