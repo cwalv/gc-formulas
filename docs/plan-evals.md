@@ -82,7 +82,19 @@ Per case, per run:
 
 Each case run multiple times (5-10) to get distributions, not single points.
 
-**Cache fields landed 2026-05-23** (fo-vgam1 / C.4 refinement). All four worker-pattern runners (`ralph`, `fanout`, `sectioning`, `orchworkers`) emit `cache_creation_input_tokens` + `cache_read_input_tokens` at the top level of result JSON, and the per-worker records inside `workers[]`. The driver's aggregate surfaces `median_cache_creation_input_tokens` + `median_cache_read_input_tokens` per pattern. Schema is additive — pre-existing `tokens_in`/`tokens_out` semantics (per-turn cost) preserved for back-compat.
+**Cache fields landed 2026-05-23** (fo-vgam1 / C.4 refinement). All six runners (`ralph`, `fanout`, `sectioning`, `orchworkers`, `planner`, `graph-shape`) emit `cache_creation_input_tokens` + `cache_read_input_tokens` at the top level of result JSON, and the per-worker records inside `workers[]`. The driver's aggregate surfaces `median_cache_creation_input_tokens` + `median_cache_read_input_tokens` per pattern. Schema is additive — pre-existing `tokens_in`/`tokens_out` semantics (per-turn cost) preserved for back-compat.
+
+Observed cache spend per pattern (`enum-extension`, sonnet workers, single-run smoke):
+
+| Pattern | per-turn tokens_in | cache_creation (contract length) | cache_read (re-use volume) | Notes |
+|---|---|---|---|---|
+| graph-shape (planner-only) | 5 | 14K | 17K | Pure planning call. cache_creation = idioms + spec + tree. |
+| fanout (6 workers) | 77 | **116K** | 1.8M | 19K cache_create per worker; 300K cache_read per worker. |
+| orchworkers (6 workers + 1 merge) | 142 | **178K** | 4.1M | 32K cache_create per worker (workers iterate more) + 36K cache_create for merge; cache_read dominated by worker turns. |
+
+Useful framing: `cache_creation` is the **first-time** size of the prompt-cache prefix (effectively "what fit into the context window"). `cache_read` is **how many times** the cached prefix got re-used across turns — a multiplier on contract length. Per-turn `tokens_in` of 77 vs cache_creation of 116K is a ~1500× gap on fanout; orchworkers' multi-iteration workers stretch the cache_read-to-cache_creation ratio further (4.1M / 178K ≈ 23×).
+
+Implication for claim 3: the load-bearing measurement is **cache_creation of the brief slice** (what the persona prompt asks the worker to do, before the tool defs and spec are appended). The full cache_creation conflates persona contract + spec + system prompt, so a separate measurement of just the brief portion is still useful for tracking the position over time.
 
 ## Model calibration
 
