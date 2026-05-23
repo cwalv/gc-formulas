@@ -323,6 +323,33 @@ More relevant after B's finding that opus defaults to orchworkers regardless of 
 
 Result fields: same as planner runs + `library_used` (string) + the library markdown file as an artifact.
 
+**E1-adjacent findings (2026-05-23, from B.2 graph-shape probes):**
+Probing the `choreography-idioms.md` library with three library variants
+on `enum-extension` + `validator-suite` surfaced two distinct library
+effects, only one of which is tier-dependent:
+
+| Library variant | Idioms offered | Sonnet validator-suite | Sonnet enum-extension |
+|---|---|---|---|
+| Full (5 idioms) | all | 0/10 sound (always coordinator) | 6/10 sound (mostly two-phase-commit alt) |
+| Half (2 idioms: fanout + synth-pipe) | curated | 3/5 sound (some unneeded synth-pipe) | 5/5 sound (synth-pipe matches case) |
+| Stripped (1 idiom: fanout only) | minimal | 5/5 sound | 0/5 sound (structurally unsound — fanout doesn't fit shared-state case) |
+
+Opus is library-default-insensitive (validator-suite 5/5 on every library
+variant). Both tiers obey the library's enumeration as a hard constraint
+(stripped-library on enum-extension produced 5/5 fanout from both opus
+and sonnet — neither went off-library to add a contract-author bead).
+
+The actionable lesson for E1: **per-case library curation** beats both
+"give the model everything and hope" and "give the model nothing." A
+pre-routing step ("this case has shared state → show synth-pipe; this
+case is embarrassingly parallel → show fanout only") would land sonnet
+at 5/5 + 5/5 across both cases. Naive freeform planning doesn't.
+
+This is preliminary E1 evidence collected as a side-effect of graph-shape
+probes. Formal E1 work would also vary the *framing* of the library (not
+just the enumeration), and would benchmark against the current
+freeform-spec baseline at higher N.
+
 ### E2 — Pattern matrix expansion
 
 Add the patterns we haven't tried:
