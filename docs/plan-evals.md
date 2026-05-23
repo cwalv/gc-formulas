@@ -39,7 +39,17 @@ Each Anthropic pattern earns its keep on a different axis. The eval shape has to
 
 This is enough structure that each pattern can be tested *for the reason it exists*, not just "did it pass." Without it, e.g., evaluator-optimizer looks like pure overhead (slower than single-pass with no measurable win).
 
-**Empirical caveat (from M1+M2):** naive-fanout — concurrent unsynchronized writes to a shared worktree, no isolation, no merge — is *not* a valid implementation of "sectioning." It only succeeds when pieces are truly file-isolated and have no shared state (cancel-method case). On shared-state tasks (validator-suite case), it produces broken output, not just slow output. The valid sectioning implementation requires either per-worker isolation (separate worktrees + file-scoped collation) or orchestrator-workers' explicit LLM merge step. Treat naive-fanout as an anti-pattern, useful only as a measurement of *what happens when you skip reconciliation*.
+**Empirical caveat (from milestone A-C, sonnet workers):**
+
+- **Naive fanout** is *not* a valid implementation of sectioning — it shares a worktree and has no merge step. It succeeds only when (a) pieces are truly file-isolated *and* (b) workers don't need to extend shared state. The earlier "naive fanout produces broken results on shared-state" framing was first measured against `validator-suite` under a buggy brief; the corrected re-run shows naive fanout succeeds on `validator-suite` (10/10) because that case doesn't force shared-state extension (the `Reason` enum was pre-stocked). The structural failure mode survives — but is now demonstrated on `enum-extension`, where shared `ErrorCode`/`ERROR_REGISTRY` are empty in starting-state and excluded from worker scope.
+
+- **Sectioning** (per-worker isolated worktrees + deterministic collation) succeeds on file-isolated tasks (no different from naive fanout, just without the worktree write races) and partially on forced-shared-state tasks (~30% all-pass on `enum-extension` — sometimes workers happen to land on consistent names, sometimes don't).
+
+- **Orchestrator-workers** wins both axes on forced-shared-state tasks (5/5 on `enum-extension`). On non-forced-state tasks, the merge step is pure overhead (validator-suite: 111s orch-workers vs 83s fanout, both 10/10).
+
+- **Ralph** wins on forced-shared-state tasks too (10/10 on `enum-extension`), often at the lowest token cost since failure modes burn tokens. Wall-clock is the cost: ralph serializes work the parallel patterns do concurrently.
+
+See "Findings to date" below for the data tables.
 
 ## What makes a good goal (corpus case)
 
@@ -129,23 +139,65 @@ Probably start (1) for the first data point, expand to (3) once the eval runner 
 
 ## Findings to date
 
-Two cases authored at opus-4-7's capability edge:
+Three cases authored, all run under sonnet workers + opus planner / merge:
 
-| Case | Pattern | N | Median wall-clock | All-pass | Notes |
+### Cases and what they test
+
+- **`cancel-method`** — 5 sibling entity classes sharing an EventBus. File-isolated work; no forced cross-file coordination. Validates the runner infrastructure (M1).
+- **`validator-suite`** — 7 sibling validators sharing a `Validator` ABC, `Reason` enum, and registry. Initial calibration target, but the `Reason` enum was pre-stocked with every code the validators need — workers never actually have to extend shared state. Control case for "patterns succeed when state isn't forced."
+- **`enum-extension`** — 6 sibling error classes sharing an `ErrorCode` enum and `ERROR_REGISTRY`. Both shared structures are empty in starting-state; workers MUST add their variant + register themselves, but those files are excluded from worker scope under fanout/sectioning. Only patterns where some agent has cross-file authority can succeed. Authored specifically to expose pattern differentiation.
+
+### Empirical results
+
+**enum-extension (forced shared-state extension):**
+
+| Pattern | N | All-pass | Median wall | Mean tokens out | Failure mode |
 |---|---|---|---|---|---|
-| cancel-method | Ralph (one-shot) | 10 | 83.6s | 10/10 | Case too easy at this tier — both patterns one-shot it |
-| cancel-method | Naive fan-out | 10 | 28.9s | 10/10 | 2.9× speedup; pieces truly file-isolated so no shared-state corruption |
-| validator-suite | Ralph (loop) | 10 | 197.6s | 10/10 | One-shot at iter 1 in all runs; slowest, correct |
-| validator-suite | Naive fan-out | 10 | 25.7s | **0/10** | Workers corrupted shared `base.py`/`registry.py`/`Reason` enum without merge |
-| validator-suite | Orch-workers | 10 | 99.5s | 10/10 | 2× faster than ralph at same quality; LLM merge reconciles shared state |
+| Ralph (single-agent loop) | 10 | **10/10** | 81.2s | 4,018 | — |
+| Orchworkers | 5 | **5/5** | ~376s | ~14k | — |
+| Sectioning | 10 | 3/10 | 216s | 36,960 | Workers reference variants others added; sometimes converges by luck, often pytest collection fails |
+| Naive fanout | 10 | 2/10 | 281s | 54,192 | Same import-fail mode plus shared-worktree write races |
 
-**Two findings, in tension:**
-1. **The right pattern wins on wall-clock at equal or better quality.** Orch-workers vs ralph on validator-suite: 2× faster, same 100% pass rate.
-2. **The wrong pattern produces broken results, not just slow ones.** Naive concurrent writes to shared state degrade quality, not throughput — validator-suite naive-fanout was 6.5× faster than ralph but 0/10 passing.
+**validator-suite (control — shared state pre-stocked, no forced extension):**
 
-**Implication for the planner:** pattern selection is the load-bearing decision. Hardcoding a pattern (as the current M1 runners do) bypasses the value the planner is supposed to add. This is the most direct test of `position.md`'s "model-as-orchestrator" claim and is the next milestone (B below).
+| Pattern | N | All-pass | Median wall |
+|---|---|---|---|
+| Ralph | 3 (killed) | 3/3 | ~382s |
+| Fanout | 10 | 10/10 | 83.4s |
+| Sectioning | 10 | 10/10 | 83.0s |
+| Orchworkers | 10 | 10/10 | 111.3s |
 
-**Known runner correctness issue:** `eval-fanout.sh` and `eval-orchworkers.sh` have a cancel-method-specific hardcoded brief at ~line 178 ("add a `cancel()` method to ONLY the file: entities/...") that's still used even when running validator-suite. Workers got a brief that didn't match the spec for the latter. Partially invalidates the 0/10 validator-suite naive-fanout interpretation; A.1 below fixes this.
+### Findings
+
+1. **Pattern differentiation requires a case that forces cross-file coordination.** `validator-suite` doesn't (`Reason` enum is pre-stocked). `enum-extension` does. The differentiation that surfaces on `enum-extension` is the load-bearing empirical result; `validator-suite` is now best understood as the negative control.
+
+2. **On forced-shared-state tasks, pattern hierarchy is sharp:** ralph (100%) ≈ orchworkers (100%) >> sectioning (30%) > fanout (20%). The merge step in orchworkers is the load-bearing differentiator vs sectioning; ralph wins by owning the whole task sequentially.
+
+3. **On non-forced-state tasks, all patterns succeed at similar quality.** Differentiation is on wall-clock only, and orchworkers' merge step is pure overhead (~34% slower than fanout, no quality benefit).
+
+4. **Token cost surprise: ralph is the cheapest by a wide margin when the task fits.** ~4k tokens out vs orchworkers' ~14k vs sectioning's ~37k vs fanout's ~54k on `enum-extension`. Failure modes burn tokens — fanout/sectioning workers retry and explore when their code can't import. This inverts the naive "parallel = cheaper" intuition.
+
+5. **A historical 0/10 validator-suite naive-fanout result was a brief-bug artifact** (cancel-method-specific brief was hardcoded). Fixed in milestone A; the corrected re-run is 10/10 at 83.4s. The "naive fanout fails on shared state" narrative survives — but only via `enum-extension`, where the failure is intrinsic to the pattern, not the brief.
+
+### Implication for the planner
+
+Pattern selection is the load-bearing decision *only on shared-state-forcing cases*. The planner needs to:
+
+- Recognize whether the task forces cross-file coordination (and how).
+- Pick orchworkers or ralph when it does.
+- Pick the cheapest valid pattern (fanout) when it doesn't.
+
+`eval-planner.sh` (milestone B) tests this directly. Preliminary smoke (N=3, opus workers, opus planner — pre-sonnet-switch) showed the planner defaulting to orchworkers regardless of case shape; sometimes correct as "cheap insurance" on shared-state cases, sometimes pure overhead on file-isolated ones. E1 (library-driven planner) is the next test of whether a typed pattern menu breaks this default-to-orchworkers bias.
+
+### Calibration: why sonnet workers
+
+Sonnet sits at the Goldilocks tier (independently confirmed in Gemini's review — see "Feedback" section below). Opus one-shots everything (no differentiation visible — the M1+M2 baselines under opus mostly showed all patterns succeeding). Haiku would produce nonsense that orchestration can't reconcile (wrong test). Sonnet generates good-faith attempts that stumble on cross-cutting bits — exactly where orchestration earns its keep.
+
+### See also
+
+- [`evals/enum-extension/RESULTS.md`](../evals/enum-extension/RESULTS.md) — case-level write-up with per-rep detail.
+- [`evals/validator-suite/RESULTS.md`](../evals/validator-suite/RESULTS.md) — case-level write-up.
+- [`choreography-idioms.md`](choreography-idioms.md) — pattern templates as graph shapes (the canonical library E1 would draw from).
 
 ## Milestones
 
@@ -153,40 +205,33 @@ Two cases authored at opus-4-7's capability edge:
 
 Initial runner infrastructure (`eval-ralph.sh`, `eval-fanout.sh`, `eval-scorer.py`, `eval-driver.py`) + cancel-method case. Result: fan-out 2.9× faster than ralph at identical pass rate (100%) on a file-isolated task. See `evals/cancel-method/RESULTS.md`.
 
-### M2 — partial
+### M2 — done
 
-What's done:
-- Validator-suite case authored at opus-4-7's edge (7 sibling validators sharing ABC + Reason enum + registry; 19 baseline + 20 visible + 26 hidden tests).
-- Hidden tests authored for both cases; scorer surfaces `hidden_pass`/`hidden_total` alongside visible.
+- Validator-suite case authored (7 sibling validators sharing ABC + Reason enum + registry; 19 baseline + 20 visible + 26 hidden tests).
+- Hidden tests authored for all cases; scorer surfaces `hidden_pass`/`hidden_total` alongside visible.
 - `eval-orchworkers.sh` added (sectioning + LLM merge step).
-- Three-pattern comparison N=10 each on validator-suite. Orch-workers wins (99.5s vs ralph 197.6s, both 10/10).
-- Worker-model identification in result JSON (`worker_model` field).
+- N=10 comparisons across all 4 patterns on both validator-suite and enum-extension. See "Findings to date" above.
+- Worker-model identification in result JSON (`worker_model` field, captured as `OBSERVED_MODEL`).
 
-What's not yet done (deferred to A-C ladder below):
-- A: Brief-bug fix + clean re-run.
-- B: Pattern selection as an eval axis.
-- C: True sectioning impl (per-worker isolation, deterministic file-scoped collation); per-orchestrator runners.
+### A — Runner correctness — done
 
-### A — Runner correctness (cheap)
+- **A.1** ✓: Fixed cancel-method-specific hardcoded brief in `scripts/eval-fanout.sh` and `scripts/eval-orchworkers.sh`. Brief now uses `${FANOUT_DIR_NAME}` and references `spec.md` for the verb. Workers no longer get a stale instruction on cases other than cancel-method.
+- **A.2** ✓: Re-ran validator-suite naive-fanout N=10 with fixed brief. Recovered from 0/10 to 10/10 at 72.2s (opus) / 83.4s (sonnet). The original 0/10 was a brief-bug artifact; the "naive fanout fails on shared-state tasks" narrative survives via `enum-extension`, not `validator-suite`.
+- **A.3** ✓: cancel-method N=10 regression-checked at 10/10. No regression.
+- **A.4** (added during A): per-worker token tracking — result JSON now includes a `workers` array `[{file, tokens_in, tokens_out}, ...]` alongside aggregated totals.
 
-- **A.1**: Fix the cancel-method-specific hardcoded brief in `scripts/eval-fanout.sh` (lines ~174, 180, 182) and `scripts/eval-orchworkers.sh`. Use `${FANOUT_DIR_NAME}` instead of literal `entities/`; remove the `cancel() method` verb and the `event_bus.py` exclusion (rely on the `exclude` list in `fanout.json`); have the brief reference the case's `spec.md` for the verb.
-- **A.2**: Re-run validator-suite naive-fanout N=10 with the fixed brief. Update `evals/validator-suite/RESULTS.md` with either confirmation (broken impl, structurally bad — the 0/10 result holds) or revision (was a brief bug).
-- **A.3**: Regression-check cancel-method N=10 to confirm the fix didn't break the working case.
+### B — Pattern-selection eval — done
 
-### B — Pattern-selection eval
+`scripts/eval-planner.sh` shipped. Planner brief shows case spec + starting-state tree summary + pattern menu (ralph / fanout / orchworkers); returns JSON choice + reasoning. Dispatched runner's result is merged with planner fields (`planner_choice`, `planner_reasoning`, `planner_tokens_in`/`out`, `planner_model`). Driver aggregation surfaces a `planner_choices` distribution.
 
-`scripts/eval-planner.sh` — show the planner the case (spec.md + starting-state directory tree summary), present the pattern menu (ralph / sectioning / orch-workers / eval-optimizer), get back JSON `{"pattern": "...", "reasoning": "..."}`, then dispatch the chosen runner.
-
-Result JSON adds `planner_choice`, `planner_reasoning`, `planner_tokens_in`/`out` on top of the chosen pattern's normal fields. Score the planner's choice against the empirically best pattern for the case — does opus correctly route validator-suite to orch-workers, cancel-method to fan-out?
-
-The most direct test of `position.md`'s "model-as-orchestrator" claim. Without it, the bench measures only "given pattern X, how does it score" — the actual orchestration decision is offstage.
+Smoke results (N=3 each case, opus workers, opus planner — collected pre-sonnet-switch): planner picked orchworkers 3/3 on both `cancel-method` and `validator-suite`. Consistent "cheap insurance" framing in the reasoning even when fanout would suffice. Documents the default-to-orchworkers bias that E1 (library-driven planner) is meant to probe.
 
 ### C — Bench completeness
 
-- **C.1**: `scripts/eval-sectioning.sh` — per-worker isolated worktrees + deterministic file-scoped collation (no LLM merge). The correct implementation of Anthropic's sectioning pattern; replaces naive-fanout as the canonical "isolation without merge" baseline.
-- **C.2**: Per-orchestrator runners — `scripts/eval-gc.sh`, `scripts/eval-ntm.sh`. Re-run the same patterns through validation-pack scenarios. Requires validation-pack refactor to take *external* eval cases (instead of hardcoded task briefs). Most complex item; treat as its own milestone if scope grows. **Design fragment:** [`per-orchestrator-runners.md`](per-orchestrator-runners.md) (T-shirt: M).
-- **C.3**: Update the `Pattern-specific win conditions` table above to reflect empirics — naive-fanout is structurally broken; sectioning needs either isolation or merge; orch-workers wins both axes when state is shared.
-- **C.4**: Worker-contract length tracking — capture per-worker prompt and output token counts in result JSON, not just aggregates. Tests `position.md` claim 3 (short worker contracts) empirically.
+- **C.1** ✓: `scripts/eval-sectioning.sh` — per-worker isolated worktrees + deterministic file-scoped collation, no LLM merge. The correct implementation of Anthropic's sectioning pattern. On `enum-extension` it produces the "individually correct but cross-file invariants broken" failure mode (3/10 all-pass; one rep had 20/20 visible + 0/2 hidden).
+- **C.2** ✓ (scope only): Per-orchestrator runners design fragment landed — see [`per-orchestrator-runners.md`](per-orchestrator-runners.md). T-shirt: M. Implementation deferred; 8 known blockers documented.
+- **C.3** ✓ (this section): Pattern-specific win conditions table revised to reflect empirics; "Findings to date" rewritten with sonnet-baseline data; case-level `RESULTS.md` files updated.
+- **C.4** ✓ (folded into A.4): Per-worker token tracking in result JSON. **Caveat:** the `tokens_in`/`tokens_out` come from claude's per-turn `usage` field, not cache-creation/cache-read totals — measures per-turn cost, not full contract length. Refinement needed if measuring claim 3 (short worker contracts) is load-bearing for the position.
 
 ### D1 — Scale the evidence base
 

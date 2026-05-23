@@ -84,3 +84,33 @@ python3 scripts/eval-driver.py --case validator-suite --pattern orchworkers --n 
 ```
 
 Approximately 35 min wall-clock for ralph N=10, 12 min for fanout (post-fix; was 5 min on the broken brief), 18 min for orchworkers (or ~35 min total if run in parallel — ralph dominates). Token budget ~$20-25 at opus pricing.
+
+---
+
+## Update: sonnet baseline (post worker-model switch)
+
+After plan-evals A confirmed that the original 0/10 was a brief bug, the bench switched worker models from opus to sonnet (see `docs/plan-evals.md` "Calibration: why sonnet workers"). All four patterns were re-run on validator-suite with sonnet workers + opus planner/merge:
+
+| Pattern | N | All-pass | Median wall (s) | Mean tokens out |
+|---|---|---|---|---|
+| Ralph | 3 (killed at N=3 to save quota) | 3/3 | ~382s | — |
+| Naive fanout | 10 | 10/10 | 83.4s | 11364 |
+| Sectioning | 10 | 10/10 | 83.0s | 11533 |
+| Orchworkers | 10 | 10/10 | 111.3s | 13011 |
+
+Reproducing the broader-bench finding: **validator-suite does not differentiate patterns** under sonnet either. All patterns reach 10/10; differentiation is on wall-clock only, and orchworkers' merge step is pure overhead (~34% slower than fanout, no quality benefit). Sectioning ≈ fanout because the case doesn't actually force shared-state extension (the `Reason` enum is pre-stocked).
+
+This is **the right behavior for a control case**. Differentiation lives on `enum-extension` (see `../enum-extension/RESULTS.md`), which forces workers to extend shared `ErrorCode` + `ERROR_REGISTRY` that are not pre-stocked.
+
+### What validator-suite is good for now
+
+- Smoke / regression test that the runners + scorer work end-to-end.
+- Wall-clock baseline: orchworkers' merge-step overhead is measurable here (~28s vs fanout).
+- Calibration sanity: sonnet ≈ opus on this case (within 15%), so worker switch didn't break anything.
+
+### What validator-suite is NOT good for
+
+- Differentiating patterns on quality. (Use `enum-extension`.)
+- Testing the orchworkers merge-step value. (The merge does no real reconciliation work here.)
+- Stress-testing the planner's pattern selection. (All patterns succeed; "wrong" choice is just slow, not broken.)
+
