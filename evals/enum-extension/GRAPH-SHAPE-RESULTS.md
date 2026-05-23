@@ -102,20 +102,86 @@ Both gaps are at the *architecture-quality* level, not the
 *executes-the-task* level. That's the right distinction for a plan-only
 eval to surface.
 
+## Designless variant (2026-05-23)
+
+To test whether opus's 10/10 is intrinsic architect skill or relied on
+the file-layout hint in `spec.md`, ran both models against a stripped
+design (`evals/enum-extension/design-stripped.md`) — same task intent,
+but no `## Layout` block enumerating each `errors/*.py` file. Just prose
+about "shared enum / shared registry / six concrete classes."
+
+Runner extension: `SPEC_FILE_OVERRIDE` env var swaps the input file.
+
+| Model | N | Primary | Alternate | **Sound** | Broken |
+|---|---|---|---|---|---|
+| opus 4.7 (spec'd) | 10 | 10/10 | 0/10 | **10/10** | 0/10 |
+| **opus 4.7 (designless)** | 5 | 1/5 | 2/5 | **3/5** | 2/5 (plain fanout) |
+| sonnet 4.6 (spec'd) | 10 | 2/10 | 4/10 | 6/10 | 4/10 |
+| **sonnet 4.6 (designless)** | 5 | 0/5 | 4/5 | **4/5** | 1/5 |
+
+### Headline (designless)
+
+**The opus-vs-sonnet gap inverts.** With the file layout enumerated,
+opus dominates (10/10 vs 6/10). Without it, sonnet edges ahead (4/5 vs
+3/5) — its two-phase-commit default happens to be the right shape for a
+shared-state case more often than opus's "find the right idiom from
+scratch" search.
+
+### Where opus fails without the layout
+
+Both opus designless failures picked **plain `fanout` with 6-7 workers
+and no shared-state owner.** Reasoning quotes:
+
+- "Six near-identical per-class implementations are naturally independent
+  work units; fan-out scales linearly."
+- "Six structurally identical class implementations are independent
+  per-class work; fanout scales naturally."
+
+Without the file enumeration explicitly distinguishing per-class files
+(`not_found.py`, etc.) from shared infrastructure (`codes.py`,
+`registry.py`), opus's instinct is "6 identical things = parallel fanout."
+The layout block in `spec.md` was effectively highlighting "these two
+files are NOT your own per-class file." That hint was carrying real
+structural information.
+
+### Implication
+
+The architect-quality finding has a hidden dependency on **how design
+docs surface shared-state risk.** Opus is a competent architect when the
+shared infrastructure is visibly distinct from the per-leaf work; without
+that signal it sometimes misses the structure entirely.
+
+Two consequences:
+
+1. **Real-world architect runs need design docs that surface shared-state
+   explicitly.** Bullet lists of "files this work will touch" aren't
+   decoration — they're the load-bearing signal that distinguishes
+   "fanout works" from "fanout will race-write."
+2. **The "opus wins" finding from the spec'd runs is partly a finding
+   about the prompt**, not just the model. A bench that uses well-scoped
+   design docs flatters opus more than a bench with terse prose.
+
+This doesn't undo the prior result — opus *is* better at translating
+explicit-layout design docs into the right graph — but it does narrow
+the claim. The architect role isn't a pure capability test; it's a
+capability × prompt-quality interaction.
+
 ## Follow-ups
 
-1. **Why does sonnet batch?** Hand-read the 3 "incomplete" reps to see
+1. **Designless N=10**: replicate the 3/5 vs 4/5 finding with N=10 each.
+   The current numbers are suggestive, not confirmed (would benefit from
+   tighter CI).
+2. **Why does sonnet batch?** Hand-read the 3 "incomplete" reps to see
    whether it's confused about the case (3 classes vs 6), or genuinely
    choosing 2/worker as a structural decision. (Look at reasoning fields.)
-2. **A "designless" variant**: strip `spec.md` of the explicit file
-   enumeration. Does opus still nail it without the layout hint?
+   — partially done; reasoning explicitly says "three parallel
+   implementer beads," confirming conscious choice.
 3. **Execute the two sound idioms back-to-back**: run synthesis-pipeline
    AND two-phase-commit-with-contract-author on enum-extension at the
    worker layer. Do both 100%? Or does one fail in practice for reasons
    the plan-only eval can't see (e.g., contract-author has to guess all
    the enum names ahead of time, vs. merger gets to see the worker output
    first)? This would resolve the "which is better" question empirically.
-4. **`EXTRA_INSTRUCTION` knob** added to the runner (env var) — lets us
-   probe "what if we tell the architect to use synthesis-pipeline
-   specifically" or "what if we ban contract-author beads." Useful for
-   exploration but not the default mode.
+4. **`EXTRA_INSTRUCTION` and `SPEC_FILE_OVERRIDE` knobs** added to the
+   runner (env vars) — lets us probe variations without forking the
+   runner. Useful for exploration but not the default mode.

@@ -53,7 +53,7 @@ if ! command -v claude &>/dev/null; then
 fi
 
 CASE_DIR="${EVALS_DIR}/${CASE_ID}"
-SPEC_FILE="${CASE_DIR}/spec.md"
+SPEC_FILE="${SPEC_FILE_OVERRIDE:-${CASE_DIR}/spec.md}"
 STARTING_STATE="${CASE_DIR}/starting-state"
 REFERENCE_FILE="${CASE_DIR}/reference-graph.json"
 
