@@ -216,7 +216,7 @@ VALID_PATTERNS = {"ralph", "fanout", "orchworkers"}
 PLANNER_OUT, PLANNER_PARSED = sys.argv[1], sys.argv[2]
 
 
-def emit(choice, reasoning, tokens_in, tokens_out, model, fallback):
+def emit(choice, reasoning, tokens_in, tokens_out, model, fallback, cache_create=0, cache_read=0):
     payload = {
         "planner_choice":     choice or "",
         "planner_reasoning":  reasoning or "",
@@ -224,6 +224,8 @@ def emit(choice, reasoning, tokens_in, tokens_out, model, fallback):
         "planner_tokens_out": int(tokens_out or 0),
         "planner_model":      model or "",
         "parser_fallback":    bool(fallback),
+        "planner_cache_creation_input_tokens": int(cache_create or 0),
+        "planner_cache_read_input_tokens":     int(cache_read or 0),
     }
     with open(PLANNER_PARSED, "w") as fh:
         json.dump(payload, fh, indent=2)
@@ -276,8 +278,10 @@ except Exception:
     sys.exit(0)
 
 usage = wrapper.get("usage") or {}
-tokens_in  = usage.get("input_tokens", 0) or 0
-tokens_out = usage.get("output_tokens", 0) or 0
+tokens_in    = usage.get("input_tokens", 0) or 0
+tokens_out   = usage.get("output_tokens", 0) or 0
+cache_create = usage.get("cache_creation_input_tokens", 0) or 0
+cache_read   = usage.get("cache_read_input_tokens", 0) or 0
 
 model_usage = wrapper.get("modelUsage") or {}
 model = next(iter(model_usage), "") if model_usage else ""
@@ -308,18 +312,17 @@ if obj is None:
         fallback = True
 
 if obj is None:
-    emit("", "", tokens_in, tokens_out, model, True)
+    emit("", "", tokens_in, tokens_out, model, True, cache_create, cache_read)
     sys.exit(0)
 
 choice = (obj.get("pattern") or "").strip()
 reasoning = (obj.get("reasoning") or "").strip()
 
 if choice not in VALID_PATTERNS:
-    # JSON parsed but unknown pattern — record and flag.
-    emit(choice, reasoning, tokens_in, tokens_out, model, True)
+    emit(choice, reasoning, tokens_in, tokens_out, model, True, cache_create, cache_read)
     sys.exit(0)
 
-emit(choice, reasoning, tokens_in, tokens_out, model, fallback)
+emit(choice, reasoning, tokens_in, tokens_out, model, fallback, cache_create, cache_read)
 PYEOF
 
 # Read fields we need for shell branching / log lines.
@@ -350,6 +353,8 @@ result = {
     "wall_clock_secs":   0.0,
     "tokens_in":         int(parsed["planner_tokens_in"]),
     "tokens_out":        int(parsed["planner_tokens_out"]),
+    "cache_creation_input_tokens": int(parsed.get("planner_cache_creation_input_tokens", 0)),
+    "cache_read_input_tokens":     int(parsed.get("planner_cache_read_input_tokens", 0)),
     "visible_pass":      0,
     "visible_total":     0,
     "hidden_pass":       0,
@@ -361,6 +366,8 @@ result = {
     "planner_reasoning": parsed["planner_reasoning"],
     "planner_tokens_in": int(parsed["planner_tokens_in"]),
     "planner_tokens_out": int(parsed["planner_tokens_out"]),
+    "planner_cache_creation_input_tokens": int(parsed.get("planner_cache_creation_input_tokens", 0)),
+    "planner_cache_read_input_tokens":     int(parsed.get("planner_cache_read_input_tokens", 0)),
     "planner_model":     parsed["planner_model"],
     "_meta": {
         "error":                    "planner did not return a valid pattern",
@@ -432,7 +439,13 @@ result["planner_choice"]     = parsed["planner_choice"]
 result["planner_reasoning"]  = parsed["planner_reasoning"]
 result["planner_tokens_in"]  = int(parsed["planner_tokens_in"])
 result["planner_tokens_out"] = int(parsed["planner_tokens_out"])
+result["planner_cache_creation_input_tokens"] = int(parsed.get("planner_cache_creation_input_tokens", 0))
+result["planner_cache_read_input_tokens"]     = int(parsed.get("planner_cache_read_input_tokens", 0))
 result["planner_model"]      = parsed["planner_model"]
+# Roll planner cache into the run-level totals so the aggregate counts both
+# planner + dispatched-runner contract length.
+result["cache_creation_input_tokens"] = int(result.get("cache_creation_input_tokens", 0)) + int(parsed.get("planner_cache_creation_input_tokens", 0))
+result["cache_read_input_tokens"]     = int(result.get("cache_read_input_tokens", 0))     + int(parsed.get("planner_cache_read_input_tokens", 0))
 
 # Annotate _meta with planner-specific provenance.
 meta = result.get("_meta") or {}

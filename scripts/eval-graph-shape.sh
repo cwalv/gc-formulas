@@ -201,6 +201,8 @@ def parse_planner(path):
         return None, 0, 0, "", True
     usage = wrapper.get("usage") or {}
     tin, tout = usage.get("input_tokens", 0) or 0, usage.get("output_tokens", 0) or 0
+    cache_create = usage.get("cache_creation_input_tokens", 0) or 0
+    cache_read   = usage.get("cache_read_input_tokens", 0) or 0
     model_usage = wrapper.get("modelUsage") or {}
     model = next(iter(model_usage), "") if model_usage else ""
     text = wrapper.get("result") or wrapper.get("text") or raw
@@ -216,7 +218,7 @@ def parse_planner(path):
     if obj is None:
         obj = find_balanced_json(text)
         if obj is not None: fallback = True
-    return obj, int(tin), int(tout), model, fallback
+    return obj, int(tin), int(tout), model, fallback, int(cache_create), int(cache_read)
 
 
 def topology(beads):
@@ -321,7 +323,7 @@ def score(graph, reference):
     }
 
 
-graph, tin, tout, model, fallback = parse_planner(planner_out_path)
+graph, tin, tout, model, fallback, cache_create, cache_read = parse_planner(planner_out_path)
 
 with open(reference_path) as fh:
     reference = json.load(fh)
@@ -346,6 +348,8 @@ sidecar = {
     "planner_tokens_out": tout,
     "planner_model":      model,
     "parser_fallback":    fallback,
+    "planner_cache_creation_input_tokens": cache_create,
+    "planner_cache_read_input_tokens":     cache_read,
 }
 with open(score_path + ".meta", "w") as fh: json.dump(sidecar, fh, indent=2); fh.write("\n")
 
@@ -372,6 +376,8 @@ result = {
     "wall_clock_secs": 0.0,  # driver fills its own wall measurement; we don't double-count
     "tokens_in":       int(meta["planner_tokens_in"]),
     "tokens_out":      int(meta["planner_tokens_out"]),
+    "cache_creation_input_tokens": int(meta.get("planner_cache_creation_input_tokens", 0)),
+    "cache_read_input_tokens":     int(meta.get("planner_cache_read_input_tokens", 0)),
     "visible_pass":    sub_pass,
     "visible_total":   3,
     "hidden_pass":     1 if sc.get("overall_pass") else 0,
