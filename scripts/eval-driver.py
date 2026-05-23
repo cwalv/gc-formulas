@@ -4,7 +4,7 @@ eval-driver.py — runs an eval runner N times and aggregates per-run results.
 
 Usage:
     python3 scripts/eval-driver.py --case <case-id> \
-        --pattern {ralph,fanout,sectioning,orchworkers,planner} --n 10 [--output-dir DIR]
+        --pattern {ralph,fanout,sectioning,orchworkers,planner,graph-shape} --n 10 [--output-dir DIR]
 
 The driver invokes:
     bash scripts/eval-<pattern>.sh <case-id> --output-dir <dir> --run-id <run-id>
@@ -42,7 +42,7 @@ def parse_args():
     p.add_argument(
         "--pattern",
         required=True,
-        help="Runner pattern name (ralph, fanout, sectioning, orchworkers, planner)",
+        help="Runner pattern name (ralph, fanout, sectioning, orchworkers, planner, graph-shape)",
     )
     p.add_argument("--n", type=int, required=True, help="Number of runs")
     p.add_argument(
@@ -167,6 +167,17 @@ def aggregate(case_id: str, pattern: str, results: list[dict]) -> dict:
     # For the planner pattern, also report the distribution of pattern choices
     # so it's obvious from the aggregate alone "planner chose orchworkers 8/10
     # times for validator-suite" (acceptance criterion 4, epic fo-6i6mt.2).
+    if pattern == "graph-shape":
+        # Per-dimension breakdown so the aggregate shows e.g. "idiom 9/10,
+        # persona 7/10, shape 6/10, overall 5/10" — distinguishes which axis
+        # the planner gets wrong.
+        agg["graph_shape_breakdown"] = {
+            "idiom_match":   sum(1 for r in results if r.get("idiom_match")),
+            "persona_match": sum(1 for r in results if r.get("persona_match")),
+            "shape_match":   sum(1 for r in results if r.get("shape_match")),
+            "overall":       sum(1 for r in results if r.get("exit_code") == 0),
+        }
+
     if pattern == "planner":
         counter: collections.Counter[str] = collections.Counter()
         for r in results:

@@ -1,0 +1,16 @@
+{
+  "idiom": "fanout",
+  "personas": {
+    "worker": 7
+  },
+  "persona_aliases": {
+    "implementer": "worker"
+  },
+  "shape": {
+    "roots":          7,
+    "sinks":          7,
+    "max_depth":      1,
+    "fan_in_to_sink": 0
+  },
+  "notes": "7 sibling validators (email, phone, credit_card, iban, isbn, semver, url) — each operates on its own file. Shared state (Reason enum, Validator ABC) is pre-stocked, so no merge bead is needed. This is fire-and-forget fanout, NOT synthesis-pipeline."
+}

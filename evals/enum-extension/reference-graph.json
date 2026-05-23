@@ -1,0 +1,20 @@
+{
+  "idiom": "synthesis-pipeline",
+  "personas": {
+    "worker":  6,
+    "merger":  1
+  },
+  "persona_aliases": {
+    "implementer": "worker",
+    "synthesizer": "merger",
+    "integrator":  "merger",
+    "merge":       "merger"
+  },
+  "shape": {
+    "roots":          6,
+    "sinks":          1,
+    "max_depth":      2,
+    "fan_in_to_sink": 6
+  },
+  "notes": "6 sibling error-class implementers (one per concrete class) fan into 1 merger that extends shared state (codes.py, registry.py). The merger is the only node with cross-file authority."
+}
