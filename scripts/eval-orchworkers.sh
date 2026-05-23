@@ -233,7 +233,7 @@ TOTAL_TOKENS_IN=0
 TOTAL_TOKENS_OUT=0
 TOKENS_PARTIAL=0   # flag: 1 if any agent didn't surface tokens
 OVERALL_EXIT=0
-WORKER_MODEL=""
+OBSERVED_MODEL=""
 
 # Per-worker token records written as JSONL; assembled into the result JSON's
 # `workers` array. Each line: {"file": "...", "tokens_in": N, "tokens_out": N}.
@@ -293,8 +293,8 @@ except Exception:
         fi
 
         # Capture worker_model from the first agent output that has modelUsage.
-        if [[ -z "$WORKER_MODEL" ]]; then
-            WORKER_MODEL="$(python3 -c "
+        if [[ -z "$OBSERVED_MODEL" ]]; then
+            OBSERVED_MODEL="$(python3 -c "
 import sys, json
 try:
     data = json.load(open('${AGENT_OUT}'))
@@ -421,8 +421,8 @@ except Exception:
     fi
 
     # Also try to capture model from merge output if we didn't get it from workers
-    if [[ -z "$WORKER_MODEL" ]]; then
-        WORKER_MODEL="$(python3 -c "
+    if [[ -z "$OBSERVED_MODEL" ]]; then
+        OBSERVED_MODEL="$(python3 -c "
 import sys, json
 try:
     data = json.load(open('${MERGE_OUT}'))
@@ -528,7 +528,7 @@ result = {
     }
 }
 
-worker_model = "${WORKER_MODEL}".strip()
+worker_model = "${OBSERVED_MODEL}".strip()
 if worker_model:
     result["worker_model"] = worker_model
 

@@ -138,7 +138,7 @@ HIDDEN_TOTAL=0
 EXISTING_PASS=0
 EXISTING_TOTAL=0
 ITERATIONS=0
-WORKER_MODEL=""
+OBSERVED_MODEL=""
 
 LOOP_START_SECS="$(date +%s%N)"
 
@@ -198,8 +198,8 @@ PYEOF
 
     # Extract worker_model from the first iteration's modelUsage keys.
     # modelUsage is a dict keyed by model ID; we take the first key.
-    if [[ $iter -eq 1 && -z "$WORKER_MODEL" ]]; then
-      WORKER_MODEL="$(python3 - "${CLAUDE_OUTPUT_FILE}" <<'PYEOF'
+    if [[ $iter -eq 1 && -z "$OBSERVED_MODEL" ]]; then
+      OBSERVED_MODEL="$(python3 - "${CLAUDE_OUTPUT_FILE}" <<'PYEOF'
 import sys, json
 try:
     with open(sys.argv[1]) as f:
@@ -305,7 +305,7 @@ result = {
     "max_iterations":   int("${MAX_ITERS}"),
 }
 
-worker_model = "${WORKER_MODEL}".strip()
+worker_model = "${OBSERVED_MODEL}".strip()
 if worker_model:
     result["worker_model"] = worker_model
 
