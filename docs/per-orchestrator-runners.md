@@ -120,6 +120,11 @@ Per-run JSON is assembled by `eval-gc.sh` / `eval-ntm.sh` (host) by combining:
   under `~/.claude/projects/` (already captured to `debug-artifacts/` on failure;
   would need to be captured unconditionally for this flow). Recommend (a) for the
   first pass and (b) as a follow-up bead.
+  **Note (fo-vgam1, 2026-05-23):** the schema for direct-runner result JSON now
+  also requires `cache_creation_input_tokens` + `cache_read_input_tokens` (the
+  actual contract length, per claim 3 in position.md). Per-orchestrator runners
+  inherit the (a) "unavailable" path for these fields too, until (b) post-processes
+  the JSONL which has them in per-turn `usage` records.
 - **Pass/fail counts**: from `eval-scorer.py` (host).
 - **Substrate metadata**: `pattern`, `substrate` ("gc" | "ntm"), `formula`,
   `worker_model` (from city.toml's `[agent.option_defaults] model` for gc, or
