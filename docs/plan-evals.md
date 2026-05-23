@@ -98,7 +98,12 @@ What you'd vary to learn:
 | Worker model | Same one layer down |
 | Library: none / markdown / formula | The thing the position is arguing about — does typed library help? |
 | Isolation: shared / worktree-per-task | Does worktree boundary improve outcomes empirically? |
-| Pattern | Sectioning vs voting vs eval-opt vs ralph baseline |
+| Pattern | Ralph / naive-parallel / orchestrator-workers / eval-optimizer / voting |
+| **Orchestration substrate** | **bare bash + claude / gc supervisor / ntm shim / bd formulas in the loop** |
+
+The orchestration-substrate axis was added after M1+M2 surfaced it. The current `scripts/eval-{ralph,fanout,orchworkers}.sh` runners are *bare-bash baselines* — they invoke `claude -p` directly with no orchestrator between them. That's the floor; a production setup would route the same patterns through a real orchestrator (gc supervisor, ntm shim, validation-pack scenarios with bd formulas). Per-orchestrator runners are an M4+ milestone — wiring validation-pack scenarios to take *external eval cases* (instead of their hardcoded task briefs) is the bounded refactor needed.
+
+Then we can ask the genuinely interesting comparisons: "How much overhead does the gc supervisor add over bare-bash for the same task?" / "Does running through formulas improve plan reliability vs inline briefs?" / "Is the supervisor's startup cost paid back by its coordination value?" Tests `position.md` claims 3 and 4 empirically.
 
 Full sweeps are expensive (~$1000+ per pass at scale). Use fake-worker variants for cheap iteration:
 
