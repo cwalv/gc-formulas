@@ -212,3 +212,28 @@ Adapt 20-30 SWE-bench Lite cases into our runner. Useful for comparing our orche
 - [`position.md`](position.md) — particularly claim 3 (worker contracts) and claim 4 (it scales); plan-evals refine the wall-clock subset of claim 4.
 - [`throughput-mode.md`](throughput-mode.md) — sister doc; measures *capacity under steady load* rather than *plan quality per task*.
 - [`principles.md`](principles.md) — the "content over runtime" principle is what plan-evals would let us empirically test (does a typed library outperform markdown templates?).
+
+## Feedback (gemini)
+
+### Primitives vs. Runtimes
+It can initially seem contradictory that a project focused on removing rigid "orchestrators" is spending so much effort rigorously evaluating orchestration patterns. The resolution lies in the difference between a **Workflow Runtime** and **Orchestration Primitives**. 
+
+By dropping the runtime (the Go engine reading TOML), the architecture relies on the raw primitives provided by the graph (Beads: create, depend, claim, close). The Anthropic patterns being evaluated here are not rigid pipelines enforced by the system, but rather **idioms** that the *Planner LLM* is taught to use. The `plan-evals` are effectively the performance review to prove the LLM is actually competent enough to orchestrate itself using these primitives.
+
+### Orchestration vs. Choreography
+This architectural bet perfectly mirrors the shift from Orchestration to Choreography in distributed systems:
+- **Orchestration:** Like a conductor and an orchestra. The musicians don't need to know the grand plan; they just stare at the sheet music and wait for the conductor to point at them. If the conductor loses their place, the whole symphony crashes. (This is the old Go runtime executing a TOML file).
+- **Choreography:** Like a group of highly skilled dancers given a shared rhythm and spatial rules. They read the room, react to each other, and adapt in real-time. If someone trips, the others naturally adjust their spacing so the routine keeps going. (This is LLM agents reading the Beads graph and figuring out the next best move).
+
+Choreography depends entirely on the **competence of the performers**. The `plan-evals` framework is essentially holding auditions to ensure the dancers are skilled enough to pull off the choreography before firing the conductor.
+
+### Evaluating Frontier Models
+When designing synthetic tasks for plan-evals, there is a risk of evaluating the architecture against a weakened worker model (like Haiku) out of fear that a frontier model (like Sonnet or Opus) will simply one-shot the task, masking the value of orchestration. However, if the goal is to build an architecture for experts, the eval must challenge experts.
+
+Instead of artificially inflating the *logical complexity* of the synthetic task to stump a frontier model, **constrain the physics of its context window.** Orchestration proves its worth against a single genius agent ("Ralph") when it overcomes volume, context-bleeding, and tunnel vision:
+
+1. **Volume ("Wide but Shallow" tasks):** E.g., updating 40 isolated files. A single frontier model fails via attention decay or output token truncation. Orchestration wins via Fan-Out/Sectioning.
+2. **Context-Bleeding ("Cross-Boundary" tasks):** E.g., changing DB schema, backend API, and frontend simultaneously. A single model confuses state across boundaries. Orchestration wins by providing cognitive isolation (separate workers per domain) and structured merging.
+3. **Tunnel Vision ("Flaky Heuristic" tasks):** E.g., fixing a race condition. A single model often loops on its own assumptions. Orchestration wins via the Evaluator-Optimizer pattern, breaking the loop with a fresh context critique.
+
+By designing tasks that attack these structural limits, the eval demonstrates that orchestration scales frontier model capabilities beyond the physics of a single prompt.

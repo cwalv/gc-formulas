@@ -204,3 +204,19 @@ Phase 1: pick concrete answers for scale + success predicate + observability,
 build a single-orchestrator throughput driver.
 Phase 2: cross-orchestrator comparison, add elasticity + fairness axes.
 Phase 3: failure injection + recovery.
+
+## Feedback (gemini)
+
+### The Universal Worker Solves Fairness
+The document raises the issue of "Fairness / starvation" and simultaneously suggests collapsing to a single generic "worker" persona. Viewing this through the lens of the "Choreography" (Blackboard) pattern, adopting the **Universal Worker** is the definitive answer. 
+
+If you have dedicated pools (Foreman, Implementer, Treehugger), you are forced to build complex orchestration logic to balance them. If all workers are generic and simply adopt the role defined by the bead they claim (enforcing the principle "Roles live in beads"), the fairness problem disappears. The system simply drains whatever work is ready.
+
+### Queue-Driven Elasticity
+The document notes that "ntm has no reconciler" and questions how to test worker elasticity. If the architecture truly commits to the Blackboard pattern, **elasticity is a property of the queue, not the workflow runtime.** 
+
+You don't need a complex reconciler. Elasticity should be a "dumb" autoscaler that monitors queue depth:
+- `bd ready` count > active workers: Spin up another Universal Worker container.
+- `bd ready` count == 0: Idle workers gracefully exit (`gc runtime drain-ack`).
+
+By moving elasticity out of the orchestrator and into a simple queue-watcher, you drastically reduce the complexity of the runtime and align perfectly with the "Content over runtime" philosophy.
