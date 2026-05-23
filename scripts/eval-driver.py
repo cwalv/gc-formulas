@@ -109,6 +109,8 @@ def load_result(output_dir: pathlib.Path, run_id: str, rc: int, elapsed: float) 
         "tokens_out": 0,
         "visible_pass": 0,
         "visible_total": 0,
+        "hidden_pass": 0,
+        "hidden_total": 0,
         "existing_pass": 0,
         "existing_total": 0,
         "exit_code": rc if rc != 0 else 1,  # ensure it counts as failed
@@ -128,6 +130,12 @@ def aggregate(case_id: str, pattern: str, results: list[dict]) -> dict:
     median_vp   = statistics.median(vis_pass)
     median_vt   = statistics.median(vis_total)
 
+    # hidden_pass_rate: [median_pass, median_total]
+    hid_pass    = sorted(r.get("hidden_pass", 0) for r in results)
+    hid_total   = sorted(r.get("hidden_total", 0) for r in results)
+    median_hp   = statistics.median(hid_pass)
+    median_ht   = statistics.median(hid_total)
+
     # all_passed_count: runs where visible_pass == visible_total AND exit_code == 0
     all_passed = sum(
         1
@@ -143,6 +151,7 @@ def aggregate(case_id: str, pattern: str, results: list[dict]) -> dict:
         "mean_tokens_in": statistics.mean(tokens_in) if tokens_in else 0.0,
         "mean_tokens_out": statistics.mean(tokens_out) if tokens_out else 0.0,
         "visible_pass_rate": [median_vp, median_vt],
+        "hidden_pass_rate": [median_hp, median_ht],
         "all_passed_count": all_passed,
     }
 

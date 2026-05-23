@@ -130,6 +130,8 @@ TOKENS_IN=0
 TOKENS_OUT=0
 VISIBLE_PASS=0
 VISIBLE_TOTAL=0
+HIDDEN_PASS=0
+HIDDEN_TOTAL=0
 EXISTING_PASS=0
 EXISTING_TOTAL=0
 ITERATIONS=0
@@ -229,7 +231,7 @@ PYEOF
   fi
 
   if [[ "$SCORER_OK" == "true" ]] && command -v python3 &>/dev/null; then
-    read -r VISIBLE_PASS VISIBLE_TOTAL EXISTING_PASS EXISTING_TOTAL < <(
+    read -r VISIBLE_PASS VISIBLE_TOTAL HIDDEN_PASS HIDDEN_TOTAL EXISTING_PASS EXISTING_TOTAL < <(
       python3 - "${SCORER_OUTPUT}" <<'PYEOF'
 import sys, json
 try:
@@ -237,16 +239,18 @@ try:
     print(
         data.get("visible_pass", 0),
         data.get("visible_total", 0),
+        data.get("hidden_pass", 0),
+        data.get("hidden_total", 0),
         data.get("existing_pass", 0),
         data.get("existing_total", 0),
     )
 except Exception:
-    print(0, 0, 0, 0)
+    print(0, 0, 0, 0, 0, 0)
 PYEOF
     ) || true
   fi
 
-  echo "    Scorer iter ${iter}: visible ${VISIBLE_PASS}/${VISIBLE_TOTAL}, existing ${EXISTING_PASS}/${EXISTING_TOTAL}" >&2
+  echo "    Scorer iter ${iter}: visible ${VISIBLE_PASS}/${VISIBLE_TOTAL}, hidden ${HIDDEN_PASS}/${HIDDEN_TOTAL}, existing ${EXISTING_PASS}/${EXISTING_TOTAL}" >&2
 
   # Goal-check: if all visible tests pass AND existing tests still pass, done.
   if [[ "${VISIBLE_PASS}" -eq "${VISIBLE_TOTAL}" ]] \
@@ -268,7 +272,7 @@ ELAPSED_NS=$(( LOOP_END_SECS - LOOP_START_SECS ))
 WALL_CLOCK_SECS="$(awk "BEGIN { printf \"%.1f\", ${ELAPSED_NS} / 1000000000 }")"
 
 echo "  Total: ${ITERATIONS} iteration(s), tokens in: ${TOKENS_IN}, out: ${TOKENS_OUT}, wall: ${WALL_CLOCK_SECS}s" >&2
-echo "  Final scorer: visible ${VISIBLE_PASS}/${VISIBLE_TOTAL}, existing ${EXISTING_PASS}/${EXISTING_TOTAL}" >&2
+echo "  Final scorer: visible ${VISIBLE_PASS}/${VISIBLE_TOTAL}, hidden ${HIDDEN_PASS}/${HIDDEN_TOTAL}, existing ${EXISTING_PASS}/${EXISTING_TOTAL}" >&2
 
 # ---------------------------------------------------------------------------
 # Write results JSON
@@ -288,6 +292,8 @@ result = {
     "tokens_out":       int("${TOKENS_OUT}"),
     "visible_pass":     int("${VISIBLE_PASS}"),
     "visible_total":    int("${VISIBLE_TOTAL}"),
+    "hidden_pass":      int("${HIDDEN_PASS}"),
+    "hidden_total":     int("${HIDDEN_TOTAL}"),
     "existing_pass":    int("${EXISTING_PASS}"),
     "existing_total":   int("${EXISTING_TOTAL}"),
     "exit_code":        int("${CLAUDE_EXIT_CODE}"),

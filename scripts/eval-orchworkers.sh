@@ -446,6 +446,8 @@ fi
 
 VISIBLE_PASS="$(python3 -c "import json; d=json.loads('''${SCORER_OUT}'''); print(d.get('visible_pass', 0))" 2>/dev/null || echo 0)"
 VISIBLE_TOTAL="$(python3 -c "import json; d=json.loads('''${SCORER_OUT}'''); print(d.get('visible_total', 0))" 2>/dev/null || echo 0)"
+HIDDEN_PASS="$(python3 -c "import json; d=json.loads('''${SCORER_OUT}'''); print(d.get('hidden_pass', 0))" 2>/dev/null || echo 0)"
+HIDDEN_TOTAL="$(python3 -c "import json; d=json.loads('''${SCORER_OUT}'''); print(d.get('hidden_total', 0))" 2>/dev/null || echo 0)"
 EXISTING_PASS="$(python3 -c "import json; d=json.loads('''${SCORER_OUT}'''); print(d.get('existing_pass', 0))" 2>/dev/null || echo 0)"
 EXISTING_TOTAL="$(python3 -c "import json; d=json.loads('''${SCORER_OUT}'''); print(d.get('existing_total', 0))" 2>/dev/null || echo 0)"
 
@@ -471,6 +473,8 @@ result = {
     "merge_tokens_out": ${MERGE_TOKENS_OUT},
     "visible_pass": ${VISIBLE_PASS},
     "visible_total": ${VISIBLE_TOTAL},
+    "hidden_pass": ${HIDDEN_PASS},
+    "hidden_total": ${HIDDEN_TOTAL},
     "existing_pass": ${EXISTING_PASS},
     "existing_total": ${EXISTING_TOTAL},
     "exit_code": ${OVERALL_EXIT},

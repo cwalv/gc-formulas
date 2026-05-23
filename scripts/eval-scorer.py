@@ -4,11 +4,13 @@
 Usage:
     python3 scripts/eval-scorer.py --case-path <path> --worktree <path>
 
-Runs two pytest suites against the worktree's modules and emits JSON:
+Runs three pytest suites against the worktree's modules and emits JSON:
 
     {
         "visible_pass": N,
         "visible_total": M,
+        "hidden_pass": N,
+        "hidden_total": M,
         "existing_pass": N,
         "existing_total": M
     }
@@ -139,7 +141,7 @@ def _run_pytest(
 # ---------------------------------------------------------------------------
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Eval scorer — runs visible + existing tests.")
+    parser = argparse.ArgumentParser(description="Eval scorer — runs visible + hidden + existing tests.")
     parser.add_argument("--case-path", required=True, help="Absolute path to the eval case dir (e.g. evals/cancel-method)")
     parser.add_argument("--worktree", required=True, help="Absolute path to the agent's output worktree")
     args = parser.parse_args()
@@ -168,6 +170,17 @@ def main() -> None:
         pytest_cmd=pytest_cmd,
     )
 
+    # Hidden tests: case-path/hidden-tests/ against worktree's modules (quality axis)
+    hidden_tests_dir = case_path / "hidden-tests"
+    if hidden_tests_dir.is_dir():
+        hidden_pass, hidden_total = _run_pytest(
+            str(hidden_tests_dir),
+            pythonpath_dirs=[str(worktree)],
+            pytest_cmd=pytest_cmd,
+        )
+    else:
+        hidden_pass, hidden_total = 0, 0
+
     # Existing tests: worktree/tests/ against worktree's modules
     existing_tests = str(worktree / "tests")
     existing_pass, existing_total = _run_pytest(
@@ -179,6 +192,8 @@ def main() -> None:
     result = {
         "visible_pass": visible_pass,
         "visible_total": visible_total,
+        "hidden_pass": hidden_pass,
+        "hidden_total": hidden_total,
         "existing_pass": existing_pass,
         "existing_total": existing_total,
     }
