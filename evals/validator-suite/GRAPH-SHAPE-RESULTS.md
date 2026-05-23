@@ -25,6 +25,7 @@ does no real work, so it's pure overhead.
 | sonnet 4.6 | 10 | 10/10 | 0/10 | 0/10 | 0/10 |
 | sonnet 4.6 + "no coordinator" hint (soft) | 5 | 5/5 | 3/5 | 1/5 | 1/5 |
 | sonnet 4.6 + "no coordinator" hint (strong) | 5 | 5/5 | 4/5 | 4/5 | 4/5 |
+| opus 4.7 designless (`design-stripped.md`) | 5 | 5/5 | 2/5 | 2/5 | **2/5** |
 
 ## Headline finding
 
@@ -84,6 +85,47 @@ All 10 reps picked `fanout` for the idiom. Shape variants:
 
 - 8 reps: 1 root + 7 sinks, max_depth 2, fan_in_to_sink 1 — coordinator → 7 workers
 - 2 reps: 1 root + 1 sink, max_depth 3, fan_in_to_sink 7 — coordinator → 7 workers → 1 integrator
+
+## Designless variant (opus 4.7, N=5)
+
+Companion to the enum-extension designless variant. Validator-suite's
+spec.md enumerates each validator file (`validators/email.py`, etc.) and
+explicitly says "implementing one doesn't require touching another."
+Strip that to higher-level prose only ("a set of input validators...
+the starting state directory tree shows the file layout"):
+
+| Model | N | idiom | persona | shape | overall |
+|---|---|---|---|---|---|
+| opus 4.7 (spec'd) | 10 | 10/10 | 10/10 | 10/10 | 10/10 |
+| opus 4.7 (designless) | 5 | 5/5 | 2/5 | 2/5 | **2/5** |
+
+### What goes wrong without the layout enumeration
+
+Opus designless picked `fanout` correctly 5/5 (no coordinator-bias —
+that's intrinsic, not layout-hint-driven). But 3/5 reps had 8 workers
+instead of 7; opus hallucinated an extra worker, presumably for a file
+in the starting state that wasn't supposed to be in scope (`base.py`,
+maybe). Same failure mode sonnet showed when given the strong
+no-coordinator constraint earlier.
+
+### Implication
+
+The file-layout enumeration in spec.md was doing **two** things, both
+load-bearing:
+
+1. **Surfacing shared infrastructure** (e.g., `codes.py` + `registry.py`
+   for enum-extension) so the architect knows what's NOT a per-leaf file.
+2. **Bounding worker scope** — telling the architect which files in the
+   starting state are in scope for fan-out and which aren't.
+
+Stripping the enumeration hurts opus on validator-suite via (2) — it
+over-counts workers. On enum-extension it hurt via (1) — opus sometimes
+picked fanout-without-shared-state-owner.
+
+Opus's structural instincts (no coordinator, leaf-only fan) survive
+without the layout. Its **scope discipline** doesn't — it needs the
+explicit file list to bound the work. Sonnet has both problems; opus
+has just the scoping one.
 
 ## Cross-case calibration signal
 
