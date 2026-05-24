@@ -42,7 +42,7 @@ def parse_args():
     p.add_argument(
         "--pattern",
         required=True,
-        help="Runner pattern name (ralph, fanout, sectioning, orchworkers, planner, graph-shape)",
+        help="Runner pattern name (ralph, fanout, sectioning, orchworkers, planner, graph-shape, tpc)",
     )
     p.add_argument("--n", type=int, required=True, help="Number of runs")
     p.add_argument(
