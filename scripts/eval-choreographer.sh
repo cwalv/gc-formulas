@@ -660,6 +660,9 @@ while true; do
         continue
     fi
 
+    # Count how many events arrived in this poll batch (for batch_size tracking)
+    BATCH_SIZE=$(echo "$NEW_EVENTS" | grep -c $'\t' || echo 1)
+
     while IFS=$'\t' read -r logical_bead_id real_bead_id event_reason event_comment_esc; do
         [[ -z "$logical_bead_id" ]] && continue
 
@@ -729,6 +732,7 @@ m['on_close_bead']         = '${logical_bead_id}'
 m['on_close_real_id']      = '${real_bead_id}'
 m['timestamp']             = '${TIMESTAMP}'
 m['event_num']             = ${CHOREO_EVENT_COUNT}
+m['batch_size']            = ${BATCH_SIZE}
 print(json.dumps(m))
 " "${MUTATION_JSON}" 2>/dev/null || echo "{\"action\":\"noop\",\"on_close_bead\":\"${logical_bead_id}\"}")
 

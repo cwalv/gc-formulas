@@ -239,6 +239,47 @@ def main() -> None:
                 forbidden_violations += 1
                 break  # count bead once even if it matches multiple forbidden entries
 
+    # --- Per-event batch_size analysis ---
+    # Tag each non-noop mutation as correct (matches expected) or wrong
+    # and record whether it arrived solo (batch_size==1) or batched (batch_size>1).
+    per_event_details: list[dict] = []
+    for mut in actual_mutations:
+        bead = mut.get("on_close_bead", "?")
+        action = mut.get("action", "noop")
+        batch_size = int(mut.get("batch_size", 1))
+        is_noop = action == "noop"
+
+        # Reference action for this bead
+        ref_action = "noop"
+        for exp in expected_mutations:
+            if exp.get("on_close", "") == bead:
+                ref_action = exp.get("action", "noop")
+                break
+
+        # Correct if: noop and no expected mutation, OR matches an expected mutation
+        if is_noop:
+            correct = (ref_action == "noop")
+        else:
+            correct = any(_mutation_matches_expected(mut, exp) for exp in expected_mutations)
+
+        per_event_details.append({
+            "on_close_bead": bead,
+            "action": action,
+            "ref_action": ref_action,
+            "correct": correct,
+            "batch_size": batch_size,
+        })
+
+    # Aggregate batched vs solo accuracy (all events including noops)
+    solo_events   = [e for e in per_event_details if e["batch_size"] == 1]
+    batched_events = [e for e in per_event_details if e["batch_size"] > 1]
+
+    solo_correct   = sum(1 for e in solo_events   if e["correct"])
+    batched_correct = sum(1 for e in batched_events if e["correct"])
+
+    solo_accuracy   = round(solo_correct   / len(solo_events),   3) if solo_events   else None
+    batched_accuracy = round(batched_correct / len(batched_events), 3) if batched_events else None
+
     result = {
         "mutation_recall": round(recall, 3),
         "mutation_precision": round(precision, 3),
@@ -249,6 +290,15 @@ def main() -> None:
         "extra_mutations": [
             scored_mutations[i] for i in extra_mutation_indices
         ],
+        "per_event_details": per_event_details,
+        "batch_analysis": {
+            "solo_events": len(solo_events),
+            "solo_correct": solo_correct,
+            "solo_accuracy": solo_accuracy,
+            "batched_events": len(batched_events),
+            "batched_correct": batched_correct,
+            "batched_accuracy": batched_accuracy,
+        },
     }
 
     print(json.dumps(result, indent=2))
