@@ -1,0 +1,4 @@
+{
+  "dir": "errors",
+  "exclude": ["base.py", "codes.py", "registry.py", "__init__.py"]
+}

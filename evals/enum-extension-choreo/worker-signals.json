@@ -1,0 +1,31 @@
+{
+  "_note": "Pre-decided signals for deterministic-mode workers. Workers read their bead-id from this file and close with the specified reason+comment. No LLM involved in workers for this eval.",
+  "design-codes": {
+    "reason": "completed",
+    "comment": null
+  },
+  "impl-conflict": {
+    "reason": "completed",
+    "comment": null
+  },
+  "impl-not-found": {
+    "reason": "revealed-additional-work",
+    "comment": "SPAWN: Add abstract method to BaseError\nDESC: Subclasses need a `code` property declared on the ABC; lift to abstract property so the contract is explicit at the base class level."
+  },
+  "impl-rate-limit": {
+    "reason": "blocked",
+    "comment": "BLOCKER: AMBIGUOUS-SPEC — Spec says rate-limit but doesn't define retry-after semantics; cannot implement RateLimitError.retry_after without a decision."
+  },
+  "impl-timeout": {
+    "reason": "completed",
+    "comment": null
+  },
+  "impl-unauthorized": {
+    "reason": "completed",
+    "comment": null
+  },
+  "impl-validation": {
+    "reason": "out-of-scope",
+    "comment": "OUT-OF-SCOPE: ValidationError requires schema-validation logic outside implementer competence; suggest re-route to evaluator"
+  }
+}

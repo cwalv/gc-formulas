@@ -1,0 +1,58 @@
+{
+  "beads": [
+    {
+      "id": "epic",
+      "title": "Implement 6 error classes",
+      "type": "epic"
+    },
+    {
+      "id": "design-codes",
+      "title": "Decide ErrorCode variants",
+      "needs": [],
+      "assignee": "validation/foreman"
+    },
+    {
+      "id": "impl-conflict",
+      "title": "Implement ConflictError",
+      "needs": ["design-codes"],
+      "assignee": "validation/implementer"
+    },
+    {
+      "id": "impl-not-found",
+      "title": "Implement NotFoundError",
+      "needs": ["design-codes"],
+      "assignee": "validation/implementer"
+    },
+    {
+      "id": "impl-rate-limit",
+      "title": "Implement RateLimitError",
+      "needs": ["design-codes"],
+      "assignee": "validation/implementer"
+    },
+    {
+      "id": "impl-timeout",
+      "title": "Implement TimeoutError",
+      "needs": ["design-codes"],
+      "assignee": "validation/implementer"
+    },
+    {
+      "id": "impl-unauthorized",
+      "title": "Implement UnauthorizedError",
+      "needs": ["design-codes"],
+      "assignee": "validation/implementer"
+    },
+    {
+      "id": "impl-validation",
+      "title": "Implement ValidationError",
+      "needs": ["design-codes"],
+      "assignee": "validation/implementer"
+    },
+    {
+      "id": "land",
+      "title": "Land + reconcile",
+      "needs": ["impl-conflict", "impl-not-found", "impl-rate-limit", "impl-timeout", "impl-unauthorized", "impl-validation"],
+      "assignee": "validation/treehugger"
+    }
+  ],
+  "_note": "Intentionally incomplete: no bead for 'extend BaseError abstract method', 'cross-error invariant tests', or 'wire registry helpers'. Implementers will discover and signal revealed work."
+}

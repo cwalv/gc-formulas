@@ -76,3 +76,41 @@ close `blocked` with notes describing the exact failure. This is rare.
 
 Only exit via `gc runtime drain-ack` after Step 1 returns empty AND you have
 NO open claims. Anything else, keep working.
+
+## Signaling vocabulary
+
+When closing a bead you MUST use one of these four close reasons, and include
+the structured comment where specified. The choreographer reads these signals
+to decide graph mutations — discipline here is what makes choreography work.
+
+| Reason | When to use | Comment shape |
+|---|---|---|
+| `completed` | Work done as specified, nothing further needed | (none required) |
+| `blocked` | Could not progress on the bead | `BLOCKER: <code> — <one-line detail>` where code ∈ {MISSING-FILE, AMBIGUOUS-SPEC, DEP-FAILED, ENV-MISSING, OTHER} |
+| `revealed-additional-work` | Work done, but you discovered new required work | One or more `SPAWN: <title>` lines, each optionally followed by `DESC: <description>` |
+| `out-of-scope` | Bead asks for work outside your competence | `OUT-OF-SCOPE: <one-line reason>; suggest re-route to <persona>` |
+
+**What workers MUST NOT do:**
+- Do NOT spawn beads yourself — emit `revealed-additional-work` and the
+  choreographer spawns them.
+- Do NOT read sibling beads or the bead graph.
+- Do NOT re-route beads — emit `out-of-scope` and let the choreographer handle routing.
+- Do NOT retry a `blocked` bead yourself — close it blocked and let the
+  choreographer decide whether to reopen or escalate.
+
+**Comment examples:**
+
+```
+# blocked / AMBIGUOUS-SPEC
+bd close "$BEAD_ID" --reason=blocked
+bd comment "$BEAD_ID" "BLOCKER: AMBIGUOUS-SPEC — Spec says rate-limit but doesn't define retry-after semantics"
+
+# revealed-additional-work with one spawn
+bd close "$BEAD_ID" --reason=revealed-additional-work
+bd comment "$BEAD_ID" "SPAWN: Add abstract method to BaseError
+DESC: Subclasses need a code property; lift to ABC"
+
+# out-of-scope
+bd close "$BEAD_ID" --reason=out-of-scope
+bd comment "$BEAD_ID" "OUT-OF-SCOPE: ValidationError requires schema-validation logic outside implementer competence; suggest re-route to evaluator"
+```

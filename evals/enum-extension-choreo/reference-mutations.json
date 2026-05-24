@@ -1,0 +1,43 @@
+{
+  "_note": "Expected and forbidden choreographer mutations for the enum-extension-choreo case. Scored by eval-mutation-scorer.py.",
+  "expected_mutations": [
+    {
+      "id": "spawn-abstract-method",
+      "on_close": "impl-not-found",
+      "action": "spawn",
+      "title_match": "abstract method.*BaseError|BaseError.*abstract|code.*abstract|abstract.*code"
+    },
+    {
+      "id": "human-flag-rate-limit",
+      "on_close": "impl-rate-limit",
+      "action": "human",
+      "note_match": "ambiguous|retry.after|AMBIGUOUS"
+    },
+    {
+      "id": "reassign-validation",
+      "on_close": "impl-validation",
+      "action": "reassign",
+      "to": "evaluator"
+    }
+  ],
+  "forbidden_mutations": [
+    {
+      "id": "no-spawn-after-conflict",
+      "action": "spawn",
+      "after": "impl-conflict",
+      "_reason": "impl-conflict completed cleanly; choreographer must not spawn anything"
+    },
+    {
+      "id": "no-spawn-after-timeout",
+      "action": "spawn",
+      "after": "impl-timeout",
+      "_reason": "impl-timeout completed cleanly; no additional work warranted"
+    },
+    {
+      "id": "no-spawn-after-unauthorized",
+      "action": "spawn",
+      "after": "impl-unauthorized",
+      "_reason": "impl-unauthorized completed cleanly; no additional work warranted"
+    }
+  ]
+}
