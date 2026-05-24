@@ -58,6 +58,16 @@ fi
 # Checkpoint: after verifier, before artifact capture (and exit).
 checkpoint verify
 
+# Unconditionally copy ~/.claude/projects/ to the host-visible debug directory
+# so token aggregation can run on the host after container exit (fo-4nglm).
+# The container is destroyed with --rm; anything not persisted here is lost.
+if [[ -d "${HOME}/.claude/projects" ]]; then
+    _claude_dst="/home/agent/debug-artifacts/claude-projects"
+    mkdir -p "${_claude_dst}"
+    cp -r "${HOME}/.claude/projects/." "${_claude_dst}/" 2>/dev/null || true
+    echo "===== run-scenario: claude/projects copied to ${_claude_dst} =====" >&2
+fi
+
 # A failed driver is the root cause; don't mask it.
 # Dump full state of every bead the verifier touched (per the fixture).
 # Lands in container stdout so `docker logs` retains it after the run ends —
@@ -108,11 +118,6 @@ if [[ "${DRIVER_RC}" -ne 0 || "${VERIFIER_RC}" -ne 0 ]]; then
     artifacts_dir="/home/agent/debug-artifacts/${SCENARIO_ID}-$(date -u +%Y%m%dT%H%M%SZ)"
     echo "===== run-scenario: FAILURE — capturing debug artifacts to ${artifacts_dir} =====" >&2
     mkdir -p "${artifacts_dir}"
-
-    # Agent session logs (Claude Code stores per-project per-session JSONL).
-    if [[ -d "${HOME}/.claude/projects" ]]; then
-        cp -r "${HOME}/.claude/projects" "${artifacts_dir}/claude-projects" 2>/dev/null || true
-    fi
 
     # tmux pane scrollback for every active session. 10000-line scrollback;
     # captures the full agent dialogue under either gc or ntm shim.

@@ -82,6 +82,10 @@ mkdir -p "${WORKTREE}"
 # starting-state is staged INSIDE the container (08-eval-case.sh) so the host
 # worktree starts empty; the container populates it via the bind mount.
 
+# Per-run debug-artifacts dir so the host can locate claude-projects/ after exit.
+DEBUG_ARTIFACTS_DIR="${OUTPUT_DIR}/${RUN_ID}/debug-artifacts"
+mkdir -p "${DEBUG_ARTIFACTS_DIR}"
+
 # Optional per-run city.toml override for --worker-model.
 COMPOSE_FILES=(-f "${PACK_DIR}/docker-compose.ntm.yml" -f "${PACK_DIR}/docker-compose.eval.yml")
 EXTRA_MOUNTS=()
@@ -114,6 +118,7 @@ EVAL_CASE_ID="${CASE_ID}" \
 EVAL_PATTERN="${PATTERN}" \
 EVAL_FANOUT_DIR="${FANOUT_DIR}" \
 EVAL_FANOUT_EXCLUDE="${FANOUT_EXC}" \
+DEBUG_ARTIFACTS="${DEBUG_ARTIFACTS_DIR}" \
 docker compose "${COMPOSE_FILES[@]}" -p "${PROJECT_NAME}" \
     run --rm "${EXTRA_MOUNTS[@]}" validation 08-eval-case || CONTAINER_EXIT=$?
 
@@ -121,6 +126,29 @@ WALL_END=$(date +%s%3N)
 WALL_SECS="$(python3 -c "print(round((${WALL_END}-${WALL_START})/1000.0, 1))")"
 
 echo "[eval-ntm] container exited rc=${CONTAINER_EXIT} wall=${WALL_SECS}s" >&2
+
+# Host-side token aggregation from per-session JSONL (fo-4nglm).
+AGGREGATOR="${REPO_ROOT}/scripts/eval-aggregate-tokens.py"
+CLAUDE_PROJECTS_DIR="${DEBUG_ARTIFACTS_DIR}/claude-projects"
+TOKENS_IN=0
+TOKENS_OUT=0
+CACHE_CREATION=0
+CACHE_READ=0
+TOKEN_COVERAGE="unavailable (substrate)"
+
+if [[ -f "$AGGREGATOR" && -d "$CLAUDE_PROJECTS_DIR" ]]; then
+    AGG_JSON="$(python3 "${AGGREGATOR}" --jsonl-dir "${CLAUDE_PROJECTS_DIR}" 2>/dev/null)" || true
+    if [[ -n "$AGG_JSON" ]]; then
+        TOKENS_IN="$(python3 -c "import json,sys; print(json.loads(sys.argv[1])['tokens_in'])" "$AGG_JSON" 2>/dev/null || echo 0)"
+        TOKENS_OUT="$(python3 -c "import json,sys; print(json.loads(sys.argv[1])['tokens_out'])" "$AGG_JSON" 2>/dev/null || echo 0)"
+        CACHE_CREATION="$(python3 -c "import json,sys; print(json.loads(sys.argv[1])['cache_creation_input_tokens'])" "$AGG_JSON" 2>/dev/null || echo 0)"
+        CACHE_READ="$(python3 -c "import json,sys; print(json.loads(sys.argv[1])['cache_read_input_tokens'])" "$AGG_JSON" 2>/dev/null || echo 0)"
+        TOKEN_COVERAGE="aggregated from per-session JSONL"
+        echo "[eval-ntm] token aggregation: tokens_in=${TOKENS_IN} tokens_out=${TOKENS_OUT} cache_creation=${CACHE_CREATION} cache_read=${CACHE_READ}" >&2
+    fi
+else
+    echo "[eval-ntm] token aggregation skipped: claude-projects dir not found at ${CLAUDE_PROJECTS_DIR}" >&2
+fi
 
 # Host-side scoring against the worktree.
 SCORER="${REPO_ROOT}/scripts/eval-scorer.py"
@@ -153,10 +181,10 @@ result = {
     "formula": "eval-orchestrator-workers",
     "worker_model": "${WORKER_MODEL_REPORTED}",
     "wall_clock_secs": ${WALL_SECS},
-    "tokens_in": 0,
-    "tokens_out": 0,
-    "cache_creation_input_tokens": 0,
-    "cache_read_input_tokens": 0,
+    "tokens_in": ${TOKENS_IN},
+    "tokens_out": ${TOKENS_OUT},
+    "cache_creation_input_tokens": ${CACHE_CREATION},
+    "cache_read_input_tokens": ${CACHE_READ},
     "visible_pass": ${VISIBLE_PASS},
     "visible_total": ${VISIBLE_TOTAL},
     "hidden_pass": ${HIDDEN_PASS},
@@ -165,11 +193,12 @@ result = {
     "existing_total": ${EXISTING_TOTAL},
     "exit_code": ${CONTAINER_EXIT},
     "_meta": {
-        "token_coverage": "unavailable (substrate)",
+        "token_coverage": "${TOKEN_COVERAGE}",
         "approach": "validation-pack scenario via ntm shim",
         "container_image": "validation-pack:latest",
         "compose_project": "${PROJECT_NAME}",
         "worktree": "${WORKTREE}",
+        "debug_artifacts": "${DEBUG_ARTIFACTS_DIR}",
     },
 }
 with open("${RESULTS_FILE}", "w") as fh:
