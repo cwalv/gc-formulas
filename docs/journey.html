@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Foundations: a project journey</title>
+<style>
+  :root {
+    --ink: #1a1a1a;
+    --ink-soft: #4a4a4a;
+    --rule: #d9d4cc;
+    --paper: #fbfaf7;
+    --accent: #a0411b;
+    --accent-soft: #f4e8df;
+    --code: #2a2a2a;
+    --code-bg: #f1eee8;
+    --good: #2f6b2f;
+    --warn: #8a6a17;
+    --bad:  #8a2727;
+  }
+  html { background: var(--paper); }
+  body {
+    font: 17px/1.55 -apple-system, "Iowan Old Style", "Source Serif Pro", Georgia, serif;
+    color: var(--ink);
+    max-width: 760px;
+    margin: 0 auto;
+    padding: 56px 32px 96px;
+  }
+  h1 { font-size: 30px; line-height: 1.2; margin: 0 0 4px; letter-spacing: -0.01em; }
+  h2 {
+    font-size: 22px; margin: 56px 0 14px;
+    padding-bottom: 6px; border-bottom: 1px solid var(--rule);
+    letter-spacing: -0.005em;
+  }
+  h3 { font-size: 17px; margin: 32px 0 8px; color: var(--ink); }
+  .subtitle { color: var(--ink-soft); margin: 0 0 6px; font-style: italic; }
+  .meta { color: var(--ink-soft); font-size: 13px; margin: 0 0 32px; }
+  p { margin: 12px 0; }
+  code, pre, .mono { font-family: "JetBrains Mono", "Source Code Pro", Menlo, monospace; }
+  code { font-size: 14px; color: var(--code); background: var(--code-bg); padding: 1px 5px; border-radius: 3px; }
+  pre {
+    background: var(--code-bg); color: var(--code);
+    padding: 12px 14px; border-radius: 4px; font-size: 13.5px;
+    overflow-x: auto; line-height: 1.45;
+    border-left: 3px solid var(--rule);
+  }
+  table { border-collapse: collapse; margin: 16px 0; font-size: 14.5px; width: 100%; }
+  th, td { text-align: left; padding: 7px 12px 7px 0; border-bottom: 1px solid var(--rule); vertical-align: top; }
+  th { font-weight: 600; color: var(--ink-soft); font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em; }
+  td.num { text-align: right; padding-right: 18px; }
+  .bead { font-family: "JetBrains Mono", Menlo, monospace; font-size: 13.5px; color: var(--accent); }
+  .callout {
+    background: var(--accent-soft); border-left: 3px solid var(--accent);
+    padding: 12px 16px; margin: 16px 0; font-size: 15.5px;
+  }
+  .callout .label { font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--accent); font-weight: 600; }
+  .verdict-good { color: var(--good); font-weight: 600; }
+  .verdict-warn { color: var(--warn); font-weight: 600; }
+  .verdict-bad  { color: var(--bad);  font-weight: 600; }
+  .timeline { list-style: none; padding: 0; margin: 0; }
+  .timeline li { padding: 8px 0 8px 14px; border-left: 2px solid var(--rule); margin-left: 6px; }
+  .timeline .when { color: var(--ink-soft); font-size: 13px; font-family: "JetBrains Mono", Menlo, monospace; }
+  .footer { color: var(--ink-soft); font-size: 13px; margin-top: 64px; padding-top: 16px; border-top: 1px solid var(--rule); }
+  a { color: var(--accent); text-decoration: none; border-bottom: 1px solid var(--accent-soft); }
+  a:hover { border-bottom-color: var(--accent); }
+  .lede { font-size: 18px; line-height: 1.5; color: var(--ink); }
+  .phase-box {
+    background: var(--code-bg); border-left: 3px solid var(--ink-soft);
+    padding: 10px 14px; margin: 10px 0; font-size: 15px;
+  }
+  .phase-box .num {
+    display: inline-block; font-family: "JetBrains Mono", Menlo, monospace;
+    color: var(--accent); font-weight: 600; margin-right: 8px;
+  }
+</style>
+</head>
+<body>
+
+<h1>Foundations: a project journey</h1>
+<p class="subtitle">From "build a formula pack for cross-repo work" to "maybe the workflow-engine shape is wrong" — and the empirical machinery for the answer.</p>
+<p class="meta">gc-formulas · project arc through 2026-05-24</p>
+
+<h2>The arc, in four phases</h2>
+
+<p class="lede">
+This project didn't unfold in the clean "position → evidence → product" order a finished system would imply. The actual story is more interesting and a little more confused. Four phases:
+</p>
+
+<div class="phase-box"><span class="num">1.</span> <strong>The original goal.</strong> Build a formula pack for gascity that does cross-repo work in a workweave and serializes merging back to the primary weave. Modeled on <code>projects/foundations/formulas/mol-polecat-base.formula.toml</code> + refinery, generalized for multi-repo.</div>
+
+<div class="phase-box"><span class="num">2.</span> <strong>It got harder than expected.</strong> Built the <code>foundations-test</code> rig (an isolated gascity rig with its own pools) and outlined three tiers of debuggability investments in <code>docs/archive/debuggability-plan.md</code>, because LLM-in-the-loop iteration was too slow and too lossy. The substrate (beads) and the whole approach kept biting even in the controlled rig. The <code>validation-pack/</code> as a coherent test surface came later — see phase 4.</div>
+
+<div class="phase-box"><span class="num">3.</span> <strong>Stepped back to evaluate the graph.v2 / workflow-engine approach holistically.</strong> The conversation in <code>docs/archive/orchestration-conversation.md</code> + <code>docs/archive/gascity-focus-areas.md</code> produced the principles — "prefer content over runtime," "form matches consumer," "opinionated UI for humans / content for agents." The position in <code>docs/position.md</code> is the synthesis from this phase, not the starting point.</div>
+
+<div class="phase-box"><span class="num">4.</span> <strong>Figuring out how to test the principles.</strong> Validation-pack tests claim 1 (patterns work without a runtime). Plan-evals asks whether the pipeline earns its keep. Throughput-mode (sketched + preliminary data) would close out claims 2/4/5. This is most of the recent commit volume.</div>
+
+<p>
+The formulas the project set out to build (phase 1) exist today, post-pivot, under the principles that came out of phase 3. Whether the principles deliver on the original goal is what phase 4 is measuring. Read in that order, the rest of the project's shape makes more sense.
+</p>
+
+<h2>Phase 1 — the original goal</h2>
+
+<p>
+Build a formula pack that does cross-repo work in a workweave and serializes the merge back to primary. The pattern was already proven for the single-repo case: <code>projects/foundations/formulas/mol-polecat-base.formula.toml</code> (load context → workspace setup → preflight → implement → self-review) plus a refinery loop that watches for completed work, merges branches, locks, pushes. The job was to generalize.
+</p>
+
+<p>
+Concretely, that meant the formula families that now live in <code>formulas/</code>:
+</p>
+
+<table>
+  <thead><tr><th>Formula family</th><th>Drives</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><code>mol-weave-base</code></td>
+      <td>Per-bead workweave lifecycle: workspace discovery / creation / rejection-aware resume. The thin base every variant extends.</td>
+    </tr>
+    <tr>
+      <td><code>mol-weave-work</code> / <code>-do-work</code> / <code>-work-sp</code></td>
+      <td>Code-authoring variants. Extend base with preflight-tests / implement / self-review steps. "-sp" is the single-pass variant.</td>
+    </tr>
+    <tr>
+      <td><code>mol-weave-refinery</code></td>
+      <td>The cross-repo merge loop. Rebases and merges every touched ephemeral branch, then locks and pushes a coherent cross-repo snapshot.</td>
+    </tr>
+    <tr>
+      <td><code>gastownhall-upstream</code> + <code>-followup</code></td>
+      <td>Submitting changes to upstream gastownhall repos. Validates, pushes to fork, opens PR with a <code>{{kind}}(scope):</code> title, defers as a park pattern. Followup handles fixup commits when CI fails.</td>
+    </tr>
+    <tr>
+      <td><code>mol-docs-refresh</code></td>
+      <td>Refresh the beads-ui handbook against current tips of beads + gastown + gascity (per <code>rwv.lock</code>). Mechanical citation-drift fixes + semantic rewrites + flagged gaps + dated changelog.</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>
+These .toml files exist on disk. Whether they currently run end-to-end against real cross-repo workloads isn't measured by anything in this project today; phase 2 surfaced how hard that loop was, and the production-shape exercise of these formulas hasn't been folded back in. They're not the project's center of gravity now — phases 3 and 4 are.
+</p>
+
+<h2>Phase 2 — it got harder than expected</h2>
+
+<p>
+The first attempts to run cross-repo formulas end-to-end stalled in a specific pattern. A 30-minute LLM-driven loop would fail, and the failure mode would be ambiguous — was it the substrate, the persona prompt, the fixture predicate, or the model? From <code>docs/archive/debuggability-plan.md</code>:
+</p>
+
+<blockquote style="border-left: 3px solid var(--rule); padding-left: 16px; margin: 12px 0; color: var(--ink-soft);">
+  The full-scenario LLM iteration loop is too slow and too lossy as a debugging surface. Two of today's bugs (bd#4082, <code>.children</code> vs <code>.dependents</code>) hid behind 30+ minutes of LLM runs that could not disambiguate "substrate lost the write" from "agent didn't perform the step" from "fixture predicate mismatch." A manual 4-second walkthrough surfaced both.
+</blockquote>
+
+<h3>The foundations-test rig and debuggability investments</h3>
+
+<p>
+Phase 2's response was to build a <em>repeatable</em> debugging surface. The <code>foundations-test</code> rig (a separate gascity rig with its own pool definitions) provided isolation from the main foundations city — so substrate experiments wouldn't disturb production work. <code>docs/archive/debuggability-plan.md</code> sketches the three-tier plan that came out of this phase:
+</p>
+
+<ul>
+  <li><strong>Tier 1:</strong> checkpoint pauses (<code>DEBUG_PAUSE_AT</code>), one-shot inspect script, container preservation. Cheap; immediate leverage.</li>
+  <li><strong>Tier 2:</strong> manual driver mode (step-named bash functions, <code>--step</code> CLI), failure-mode classifier in the verifier, predicate-of-predicates ("notes do not contain 'bash' — actual: 'computed sha256 a3f4...'").</li>
+  <li><strong>Tier 3:</strong> substrate replay (record every bd op, replay against fresh bd to localize the variable), no-LLM fake-worker mode (deterministic stand-ins that script the bd ops a passing agent would do).</li>
+</ul>
+
+<p>
+Several of these landed during phase 2 in some form. Most ended up baked into the <code>validation-pack/</code> later, when that surface got built in phase 4 (the fake-worker lane in particular paid off there — see below). The debuggability-plan itself sits in <code>docs/archive/</code> now, having served its purpose as a direction-of-travel for the test surface that came after.
+</p>
+
+<div class="callout">
+  <div class="label">What phase 2 surfaced beyond debugging tools</div>
+  Even with better debugging affordances, getting the formulas to work end-to-end kept turning up substrate-layer issues rather than workflow bugs. The pattern was specific: a workflow-engine architecture papers over substrate bugs as long as the workflow is short and the load is light. Push it harder (multi-repo, longer chains, parallel workers) and the substrate becomes the bottleneck. That's what made phase 3's step-back land — the question stopped being "how do we make this workflow engine work" and became "is the workflow-engine shape the right frame at all."
+</div>
+
+<h2>Phase 3 — the step back</h2>
+
+<p>
+After enough phase-2 sessions where debugging a formula run kept turning up substrate-layer issues, the question shifted from <em>"how do we make this workflow engine work?"</em> to <em>"is the workflow-engine shape the right frame at all?"</em> Two long conversations captured the reasoning:
+</p>
+
+<ul>
+  <li><a href="archive/orchestration-conversation.md"><code>archive/orchestration-conversation.md</code></a> — landscape mapping (gascity, NTM, Flywheel, Intent, Swamp, LangGraph, Temporal, A2A). Where each one sits, what each one earns its keep doing, what each one over-builds.</li>
+  <li><a href="archive/gascity-focus-areas.md"><code>archive/gascity-focus-areas.md</code></a> — what to invest in if gascity is going to mature into load-bearing infrastructure rather than an interesting bet. The four focus areas: worker contract crystallization, schema enforcement, reverse derivation, eval coverage for the worker protocol.</li>
+</ul>
+
+<p>
+The load-bearing realization from those conversations is captured in one line:
+</p>
+
+<blockquote style="border-left: 3px solid var(--accent); padding-left: 16px; margin: 16px 0; font-style: italic;">
+  Every line of bash in <code>graph-worker.md</code> is a place where the protocol leaks.
+</blockquote>
+
+<p>
+And the design principle that follows:
+</p>
+
+<blockquote style="border-left: 3px solid var(--accent); padding-left: 16px; margin: 16px 0; font-style: italic;">
+  Prefer content over runtime. Anything you can express as a markdown template, skill, or AGENTS.md fragment, prefer that over a DSL + interpreter. The runtime earns its keep only where the artifact genuinely can't be expressed in prose — durable execution semantics, exactly-once side effects, concurrent state mutations.
+</blockquote>
+
+<p>
+Out of those came six principles, now in <code>docs/principles.md</code>. Each has a "you're violating this when..." sentence, so violations are nameable rather than abstract:
+</p>
+
+<ul>
+  <li><strong>Content over runtime.</strong> Markdown templates &gt; DSLs + interpreters. <em>Violating it when</em> you build a TOML format whose contents are read by an LLM, then add a Go interpreter to mediate.</li>
+  <li><strong>Form matches consumer.</strong> Agent-facing? Prose. Human-facing? Opinionated UI. <em>Violating it when</em> you parse an LLM's prose output with a regex.</li>
+  <li><strong>Opinionated UI for humans, content for agents.</strong> Generalization of the above. Where the artifact is consumed by a human, opinionated UI compresses agreements about how to think. Where it's consumed by a model, prose is the universal interface.</li>
+  <li><strong>Roles live in beads, not personas.</strong> The model is the role-system. A single generic worker loop — poll, claim, read bead, do exactly what the bead says, close. <em>Violating it when</em> you have an <code>if persona == "foreman"</code> branch in Go code.</li>
+  <li><strong>Worker contract shrinks as the architecture matures.</strong> New features should compress the protocol, not extend it. <em>Violating it when</em> new orchestrator features keep adding sections to the worker prompt.</li>
+  <li><strong>Substrate provides infrastructure, never roles.</strong> Sessions, queues, hooks, events — yes. Named roles — no. <em>Violating it when</em> the substrate hard-codes a "mayor" or "treehugger" notion.</li>
+</ul>
+
+<div class="callout">
+  <div class="label">Prior art (per Gemini review)</div>
+  These principles aren't novel; they map onto three established patterns: the <strong>Blackboard architecture</strong> (1980s AI; shared durable data store, autonomous knowledge sources), <strong>Promise Theory</strong> (Burgess/CFEngine; autonomous nodes commit to desired states), and the <strong>Choreography vs. Orchestration</strong> distinction from microservices (event-driven beats top-down for fuzzy work). The contribution isn't the architecture; it's applying it to LLM-driven coding work specifically, with falsifiable claims rather than a stance.
+</div>
+
+<p>
+The position in <code>docs/position.md</code> is the synthesis. It reduces the stance to five testable propositions — each is falsifiable, none is "obviously" true. (Status as of 2026-05-24, post phase 4 work to date.)
+</p>
+
+<table>
+  <thead>
+    <tr><th class="num">#</th><th>Claim</th><th>Status</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td class="num">1</td>
+      <td>The 7 Anthropic patterns (prompt-chaining, routing, sectioning, voting, orchestrator-workers, evaluator-optimizer, agent-loop) run end-to-end on bd + personas + bash, no orchestrator state machine.</td>
+      <td><span class="verdict-good">validated</span> — 7/7 PASS under gc and ntm shims, real-LLM and fake-worker modes</td>
+    </tr>
+    <tr>
+      <td class="num">2</td>
+      <td>Patterns compose without runtime infrastructure: a parent formula's step pours a child wisp; the bead graph does the dependency math.</td>
+      <td><span class="verdict-bad">not yet</span> — mechanic exists in bd; no scenario exercises composition</td>
+    </tr>
+    <tr>
+      <td class="num">3</td>
+      <td>Worker contracts stay short as workflows get richer. <code>cache_creation</code> of the brief slice, tracked over time.</td>
+      <td><span class="verdict-warn">partial</span> — baselines captured (11K–29K per worker on enum-extension); no time series yet</td>
+    </tr>
+    <tr>
+      <td class="num">4</td>
+      <td>It scales. N concurrent workflows draining a backlog work without a layer above the substrate.</td>
+      <td><span class="verdict-warn">partial</span> — incidental parallel-N data from the validation-pack arc (gc vs ntm); the deliberate heterogeneous-backlog / elasticity / fairness work designed in <code>throughput-mode.md</code> is not built</td>
+    </tr>
+    <tr>
+      <td class="num">5</td>
+      <td>Better models do worse with cages. With-DSL vs without-DSL, measured against model versions.</td>
+      <td><span class="verdict-warn">adjacent</span> — graph-shape probes found <em>library</em> shifts sonnet defaults; opus is library-independent. Sharper finding than the original framing, but not the counter-experiment.</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>Phase 4 — testing the principles</h2>
+
+<p>
+Most of the recent commit volume sits here. Two empirical layers:
+</p>
+
+<h3>The unit-test layer — validation-pack</h3>
+
+<p>
+<code>validation-pack/</code> as a coherent surface — one formula per Anthropic pattern, containerized hermetic scenarios, real-LLM and fake-worker modes — is phase 4 machinery. It absorbed many of phase 2's debuggability investments (checkpoint mechanism, fake-worker mode, debug artifact capture) and re-oriented them around testing claim 1 of the position rather than around debugging the original phase-1 formulas. End state:
+</p>
+
+<table>
+  <thead>
+    <tr><th>Scenario</th><th>Pattern</th><th>gc</th><th>ntm</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>00 microscope</td><td>rig validation, single bead</td><td>PASS</td><td>PASS</td></tr>
+    <tr><td>01 prompt-chaining</td><td>linear chain</td><td>PASS</td><td>PASS</td></tr>
+    <tr><td>02 routing</td><td>classifier → specialist</td><td>PASS</td><td>PASS</td></tr>
+    <tr><td>03 sectioning</td><td>parallel decompose + merge</td><td>PASS</td><td>PASS</td></tr>
+    <tr><td>04 voting</td><td>parallel N → aggregate</td><td>PASS</td><td>PASS</td></tr>
+    <tr><td>05 orchestrator-workers</td><td>dynamic decompose</td><td>PASS</td><td>PASS</td></tr>
+    <tr><td>06 evaluator-optimizer</td><td>iterative refinement</td><td>PASS</td><td>PASS</td></tr>
+    <tr><td>07 agent-loop</td><td>ralph baseline</td><td>PASS</td><td>PASS</td></tr>
+  </tbody>
+</table>
+
+<div class="callout">
+  <div class="label">Where we violate our own principles</div>
+  Roles are encoded in <strong>persona files</strong> (foreman, implementer, evaluator, treehugger × 2 shims = 8 files). Phase 3's principle "roles live in beads, not personas" says they shouldn't. We violate it ourselves; captured as an improvement and tracked. The 7 patterns also aren't orthogonal — 02/03/04/05 are variations of one fan-out shape parameterized by <em>(decompose?, N, aggregation)</em>. Tolerable as unit-test fixtures; redundant for higher-level validation. Phase 4 surfaced these honestly rather than papering over them.
+</div>
+
+<h3>The substrate fix story</h3>
+
+<p>
+The longest-running puzzle of validation-pack work was a write-loss race that kept eating bd state across concurrent processes. Symptoms: workers claim a bead, exit cleanly, and the bead reverts to <code>open</code> by the next poll. Multiple sessions chased this:
+</p>
+
+<ul>
+  <li><strong>First hypothesis:</strong> "supervisor-load race" — a startup ordering bug in gc. Patches landed; the problem survived.</li>
+  <li><strong>Second hypothesis:</strong> "JSONL auto-export under flock" — wrap exports in a file lock. Built it; the problem survived.</li>
+  <li><strong>Third hypothesis (the right one):</strong> bd v1.0.3 has an <em>auto-import-from-JSONL</em> guard that fires on every bd invocation against an empty database. With auto-export on, the JSONL accumulates; concurrent bd processes import the stale state into fresh dolt instances and overwrite the in-dolt writes. Earlier patches tried to disable via <code>ENV BEADS_EXPORT_AUTO=false</code> — that env var doesn't exist in bd v1.0.3 (no-op).</li>
+</ul>
+
+<p>
+The real fix (commit <code>805a19e</code>) sets <code>bd config set export.auto false</code> plus deletes <code>.beads/issues.jsonl</code> at image build time. The auto-import guard then trips on <code>info.Size() == 0</code> and skips entirely. Single source of truth: embedded dolt.
+</p>
+
+<p>
+This is also one of the clearer examples of phase 3's principles applying <em>to the substrate's own scope</em>, not just to user-built layers on top. The JSONL auto-import was substrate complexity that wasn't load-bearing for the original design's single-source-of-truth intent; it accreted, and it cost multiple debugging sessions to find. "Content over runtime" applied to beads-itself is partly a cleanup direction — restoring the original substrate intent before workflow-engine surface area drifted in. (Rootless-mode formulas, where the LLM reads the formula content directly through a runtime mediator rather than via materialized beads, are another instance of the same accretion.)
+</p>
+
+<h3>The pipeline-quality layer — plan-evals</h3>
+
+<p>
+Validation-pack proves the substrate <em>can</em> run a pattern. Plan-evals asks: <em>does the multi-agent pipeline (planner → graph → workers → merge) produce correct outcomes more reliably and faster than a single agent could?</em> The full arc is in <a href="../eval-runs/plan-evals-journey.html">plan-evals-journey.html</a> — one weekend, 30 commits. Headline findings:
+</p>
+
+<ul>
+  <li>The architect / choreographer / worker split is implementable as three separable eval surfaces, not just a framing slide.</li>
+  <li>The choreographer's per-event prompt isolation holds up against batched arrivals (N=10, 0pp gap).</li>
+  <li><strong>Substrate orchestration costs ~3.6× wall</strong> vs bare-bash at identical pass-rate. The premium is fixed overhead (city boot, supervisor lifecycle, bd coordination), not per-step inference. The phase-3 principle stance has to defend that premium against tangible alternatives.</li>
+  <li>The choreographer is wall-clock-bound at LOOP_TIMEOUT, not work-bound. The cap, not the work, is the binding constraint.</li>
+  <li>The graph-shape probes (architect layer) surfaced a sharper finding than claim 5's original framing: choreography libraries shift <em>sonnet's defaults</em> but leave opus's untouched. Library curation is architecture work.</li>
+</ul>
+
+<h3>Throughput-mode — preliminary data, full build still pending</h3>
+
+<p>
+<code>docs/throughput-mode.md</code> sketches a layer above the unit-test scenarios: N workflow instances draining concurrently, scaling workers up/down, surviving failures without losing the queue. The full design (heterogeneous backlogs, elasticity, fairness) hasn't been built. But the phase-2 validation-pack work produced wall-clock-under-parallel-load data as a side effect — enough to start telling a story.
+</p>
+
+<table>
+  <thead>
+    <tr><th>Substrate</th><th class="num">N=1 wall</th><th class="num">N=7 wall</th><th class="num">slowdown at N=7</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>gc</td><td class="num">94 s</td><td class="num">242 s</td><td class="num">2.6×</td></tr>
+    <tr><td>ntm</td><td class="num">47 s</td><td class="num">46 s</td><td class="num">~1×</td></tr>
+  </tbody>
+</table>
+
+<p>
+Plus the fake-worker lane: all 7 scenarios in parallel under ntm in ~24 s wall-clock. The host has 24 cores + 28% idle + 0.5% IO wait, so the gc slowdown isn't host resource exhaustion.
+</p>
+
+<div class="callout">
+  <div class="label">The finding</div>
+  <p style="margin: 4px 0 8px;"><strong>gc supervisor parallel startup is dolt-sql-server-bound.</strong> The 2.6× slowdown at N=7 is supervisor boot under sql-server contention — an operational ceiling, not a substrate bug. P2 transition <code>storage_degraded → durable</code> takes 21 s solo, 65 s average at N=7. The recommendation in <code>docs/state.md</code> is "serial or ≤3-parallel docker runs" for gc.</p>
+  <p style="margin: 4px 0;"><strong>ntm scales flat under the same load</strong> because it has no reconciler — personas just poll-with-retry to survive ping-pong handoffs. Different trade-off: ntm pays in persona prompt complexity what gc pays in startup contention.</p>
+</div>
+
+<p>
+What's still not measured: heterogeneous backlog drain (mixed-pattern queue, total wall to drain), worker elasticity (scale workers up/down with queue), fairness/starvation (does the orchestrator interleave or starve one persona when multiple have work). All three are sketched in <code>throughput-mode.md</code>; building them is the next epic.
+</p>
+
+<h2>The persona contracts as a tracking surface</h2>
+
+<p>
+<code>prompts/pool-worker.md</code> and <code>prompts/refinery.md</code> are the universal contracts. Roles ride on top via bead descriptions. They're also the measurable surface for claim 3 (worker contracts shrink). Today they sit in the low hundreds of lines each — the question is whether they trend down as the substrate matures.
+</p>
+
+<p>
+Two load-bearing instructions from each, distilled from real observations:
+</p>
+
+<ul>
+  <li><strong>pool-worker.md's "GUPP — If you find work, YOU RUN IT."</strong> Forecloses the failure mode where the agent enters a "standing by for confirmation" state instead of executing. Found through repeated observation of workers that found work and asked the human what to do with it.</li>
+  <li><strong>refinery.md's "never offer choices to the operator."</strong> If find-work returns nothing, drain and exit; if it returns a bead with bad metadata, reject with the literal problem as <code>rejection_reason</code> and burn the iteration. Don't investigate why.</li>
+</ul>
+
+<h2>What we know now, that wasn't load-bearing before phase 3</h2>
+
+<ol>
+  <li>Claim 1 holds under measurement on both gc and ntm shims, real-LLM and fake-worker modes. 7/7, hermetically.</li>
+  <li>The substrate fix took three hypotheses. The pattern — "fresh dolt reads stale JSONL, overwrites in-flight writes" — is the kind of thing only re-runnable benches surface. That's the validation-pack earning its keep.</li>
+  <li>The position's biggest structural learning is the architect / choreographer / worker split. Phase 3's original framing said "model-as-orchestrator"; reality is three roles with three separable failure modes. <code>docs/position.md</code>'s terminology note tracks the rename.</li>
+  <li>Library curation is architect-level work. Choreography idioms aren't a passive menu — they bias weaker model tiers' defaults. Library design <em>is</em> the position-implementing surface.</li>
+  <li>Substrate orchestration costs ~3.6× wall vs bare-bash at identical pass-rate. Premium is fixed overhead. The phase-3 stance has to defend that premium against a tangible alternative.</li>
+  <li>Under parallel load (N=7 identical workflows), gc's wall scales 2.6× while ntm's stays flat. The gc bottleneck is dolt-sql-server boot contention, not the substrate itself — operational ceiling, not architectural. ntm's flat scaling comes at the cost of in-persona poll-with-retry.</li>
+  <li>Two principles we violate ourselves (roles in personas; 7 patterns aren't orthogonal). Honesty about violations is part of the position's stability — naming them is half the discipline.</li>
+</ol>
+
+<h2>Open follow-ups</h2>
+
+<table>
+  <thead><tr><th>bead</th><th>priority</th><th>area</th><th>topic</th></tr></thead>
+  <tbody>
+    <tr><td class="bead">fo-5fi9n</td><td>P2</td><td>plan-evals</td><td>Extend substrate runners to sectioning, ralph, agent-loop patterns</td></tr>
+    <tr><td class="bead">fo-xd40c</td><td>P2</td><td>plan-evals</td><td>Choreographer wall-clock pinned at LOOP_TIMEOUT — tune or parallelize</td></tr>
+    <tr><td class="bead">fo-zs8ct</td><td>P2</td><td>personas</td><td>pool-worker: close-with-reason on detected step-body defect, not drain-with-claim</td></tr>
+    <tr><td class="bead">fo-ssqqw</td><td>P3</td><td>validation-pack</td><td>Cross-pool multi-step graph.v2 formula instantiation gap (under <span class="bead">fo-73lgp</span>)</td></tr>
+    <tr><td class="bead">fo-jlv6k</td><td>P2</td><td>validation-pack</td><td>VP decisions doc (intentionally open as running record)</td></tr>
+    <tr><td>—</td><td>—</td><td>throughput-mode</td><td>No bead yet; design fragment in <code>docs/throughput-mode.md</code> awaits a champion</td></tr>
+  </tbody>
+</table>
+
+<h2>The meta-story</h2>
+
+<p>
+The honest framing of this project is that it started somewhere and the current center of gravity is somewhere else. Phase 1 set out to build a formula pack. The interesting story is what happened when that didn't go cleanly: phase 2's experience that the workflow-engine architecture started failing under load motivated the phase-3 step back, which produced principles that argue for a different shape entirely — including for the substrate itself, not just for things built on top. Phase 4 is the work of testing whether those principles hold up.
+</p>
+
+<p>
+The shape of the work since phase 3 has been consistent across three sub-arcs (validation-pack, plan-evals, formulas-under-new-rules): a short design fragment in <code>docs/</code> first (&lt;250 lines), implementation second, small smoke to validate, larger run to study what the smoke surfaced. Each implementation has contradicted at least one detail of its fragment. The discipline isn't perfect prediction; it's <em>writing the prediction down so the contradiction has a place to land.</em>
+</p>
+
+<p>
+What the project converges on, if the harder claims hold, isn't novel in architecture terms — it's Blackboard plus Promise Theory plus Choreography, applied to LLM coding work. The contribution is treating the position as a falsifiable proposition rather than a stance, with empirical layers built to land the numbers as they become measurable.
+</p>
+
+<p>
+What's still in front of us: throughput-mode (the deliberate build, not just incidental data), claim 3's time series, claim 5's counter-experiment, and the persona-contract shrinkage that the principle predicts but hasn't been measured. None of those are conceptually hard; they're the next chapter of phase 4.
+</p>
+
+<p class="footer">
+  Generated 2026-05-24 from <code>docs/position.md</code>, <code>docs/principles.md</code>, <code>docs/state.md</code>, <code>docs/throughput-mode.md</code>, <code>docs/archive/{debuggability-plan, gascity-focus-areas, orchestration-conversation, README}.md</code>, <code>validation-pack/</code>, <code>formulas/</code>, <code>prompts/</code>, and 200+ commits in <code>git log</code>. Companion: <code>eval-runs/plan-evals-journey.html</code>.
+</p>
+
+</body>
+</html>
