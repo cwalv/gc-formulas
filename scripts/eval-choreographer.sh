@@ -624,7 +624,7 @@ echo "[choreo] Starting choreographer loop..." >&2
 
 WALL_START="$(date +%s%3N)"
 
-CHOREO_PERSONA="$(cat "${REPO_ROOT}/validation-pack/personas/choreographer.md" 2>/dev/null || echo "You are the choreographer. Observe bead close signals and respond with a single MUTATION: tag.")"
+CHOREO_PERSONA="$(cat "${REPO_ROOT}/personas/choreographer.md" 2>/dev/null || echo "You are the choreographer. Observe bead close signals and respond with a single MUTATION: tag.")"
 
 CHOREO_EVENT_COUNT=0
 OVERALL_EXIT=0

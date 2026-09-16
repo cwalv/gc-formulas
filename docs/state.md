@@ -1,4 +1,14 @@
-# Current state of validation
+# Frozen validation record: claim 1
+
+Was titled "current state of validation"; re-headed 2026-07-25. This
+is the record for claim 1 only (7/7 patterns pass without a workflow
+runtime, under both shims) — it does not track claims 2-5, and the
+validation matrix below was already stale relative to `plan-evals.md`
+when written. Treat this as a dated snapshot of the validation-pack
+rig's result, not a live status page; the rig itself was deleted in
+the 2026-07-25 reorg (see [`deleted.md`](deleted.md)), so nothing
+here is re-runnable as-is. Claims 3 and 5 have since moved forward
+under `plan-evals.md`'s bench instead.
 
 ## Substrate fix story
 
@@ -33,7 +43,7 @@ Caveats: gc requires serial or ≤3-parallel docker runs — supervisor boot is 
 
 ## Fake-worker lane (no-LLM)
 
-All 7 scenarios also pass in fake-worker mode (`SCENARIO_MODE=fake`). Deterministic bd ops driven by scenario scripts, no LLM call. ~24s total wall-clock for all 7 in parallel under ntm. Used for substrate/shim/persona regression without LLM cost. See [`debugging.md`](debugging.md).
+All 7 scenarios also pass in fake-worker mode (`SCENARIO_MODE=fake`). Deterministic bd ops driven by scenario scripts, no LLM call. ~24s total wall-clock for all 7 in parallel under ntm. Used for substrate/shim/persona regression without LLM cost. The rig and its `debugging.md` runbook are gone as of the 2026-07-25 reorg (see [`deleted.md`](deleted.md)).
 
 ## Known nuances surfaced this session
 
@@ -46,4 +56,4 @@ All 7 scenarios also pass in fake-worker mode (`SCENARIO_MODE=fake`). Determinis
 
 - `fo-pb0ye` — consolidate ntm `projects_base` (blocked on ntm upstream — `ntm spawn --project-dir` flag doesn't exist; Claude trust is per-directory, not prefix).
 - `fo-jlv6k` — decisions log (intentionally kept open as running record).
-- Composition + claims 2-5 — see [`throughput-mode.md`](throughput-mode.md).
+- Composition + claims 2-5 — the `throughput-mode.md` capacity-under-load plan was deleted unbuilt in the 2026-07-25 reorg (see [`deleted.md`](deleted.md)); claims 3 and 5 have since moved forward under [`plan-evals.md`](plan-evals.md) instead.

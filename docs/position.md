@@ -8,7 +8,7 @@ This is a contrarian position. Gascity's graph.v2, NTM's pipeline, and most TOML
 
 > **Terminology note (open):** "Model-as-orchestrator" collapses three distinct roles. The architect (Phase A → B) produces the initial decomposition from a design doc — static, top-down. The **choreographer** (Phase B onward) observes the bead graph + worker close signals and reshapes the graph in response — centralized but reactive, like a foreman. The workers (Phase C) stay focused on their own beads and signal via close reason / status; they don't read other beads or spawn children. (At scale, a single choreographer may itself fan out into multiple choreographers each watching a sub-graph — orthogonal to the architect/worker distinction.) The choreographer framing — from `choreography-idioms.md` and Gemini's review — is sharper for the execution layer than "orchestrator." A more accurate title might be "model-as-architect-and-choreographer." The rename is held until D3 (position cash-out) when there's empirical evidence for all three roles; see `plan-evals.md` "What the bench actually tests" for what's currently measured vs. claimed.
 
-Full narrative: [`archive/agent-orchestration-architecture.md`](archive/agent-orchestration-architecture.md). Load-bearing principles: [`principles.md`](principles.md).
+Full narrative: `archive/agent-orchestration-architecture.md`, deleted in the 2026-07-25 reorg — see [`deleted.md`](deleted.md) (recoverable at `pre-reorg-2026-07-25`). Load-bearing principles: [`principles.md`](principles.md).
 
 ## Five testable claims
 
@@ -28,25 +28,63 @@ The position implies these specific claims; each is a falsifiable proposition.
 
 Claim 1: yes. See [`state.md`](state.md). 7/7 patterns pass under two shims (gc, ntm) with no workflow runtime between agents.
 
-Claims 2-5: not yet. The validation-pack as currently structured tests one-workflow-at-a-time in fresh containers — that's a unit-test level for primitives. The harder claims need different scaffolding; the plan is in [`throughput-mode.md`](throughput-mode.md).
+Claims 2-5: not yet cashed out against the original validation-pack
+capacity-under-load plan (`throughput-mode.md`, deleted in the
+2026-07-25 reorg — see [`deleted.md`](deleted.md)) — that rig tested
+one-workflow-at-a-time in fresh containers, a unit-test level for
+primitives, and nobody built the capacity harness on top of it. But
+`plan-evals.md`'s bench answers the sharper version of claims 3 and 5
+directly (contract-length measurement, the architect-tier
+coordinator-bias-is-taught finding), and the choreograph practice
+running on real epics is claims 1, 2 and 4 exercised in production
+rather than in a rig.
 
-## What this position doesn't yet answer
+## What this position doesn't yet answer (2026-07-25 update: mostly answered by practice)
 
-Even if all five claims hold empirically, the practical authoring question remains:
+This section originally posed an open authoring question in terms of
+**formulas** — what's the right granularity for a workflow DSL the
+runtime walks. That framing is moot: the formula/molecule runtime is
+abandoned (2026-07-25), so there is no DSL layer left to size. The
+practical question that survives is the same one restated one layer
+up:
 
-> Given that the architecture is model-as-orchestrator without a runtime, **what's the right level of abstraction for the most-specific formulas?** What goes in arguments, what becomes a canonical building-block formula, and where's the line between "compose existing formulas" and "write a new one"?
+> Given that decomposition happens once, at the architect tier, as a
+> bead graph with no runtime underneath it — **what's the right level
+> of abstraction for that graph?** What goes in one bead's brief, what
+> becomes a template shape reused across jobs, and where's the line
+> between "compose existing idioms" and "invent a new graph shape"?
 
-There are different layers of composition:
-- Arguments inside one formula (parameterize the same workflow shape).
-- Canonical building-block formulas (small reusable pieces).
-- Composite formulas built from building-blocks.
-- One-off formulas for specific jobs.
+Practice answered this, not more theorizing:
 
-The right balance is probably a matter of taste. But there could be reasonable guidelines, and the only way to develop them is to practice — author many real formulas (the "refinery with repoweave" role is one concrete starting point), see what breaks down, abstract from the failure modes. Throughput-mode will surface some of these as we build it against richer workloads.
+- The **idiom library is the answer to "where's the line."**
+  `choreography-idioms.md`'s five graph-shape templates (fan-out,
+  synthesis pipeline, critique loop, two-phase commit, gatekeeper) are
+  the enumerated menu; the graph-shape probes (`plan-evals.md`) showed
+  enumeration is a hard constraint on both tiers — neither opus nor
+  sonnet invents shapes outside what the library offers. So "compose
+  existing idioms" isn't optional taste, it's what actually happens;
+  curating that menu is the architecture work, not authoring formulas.
+- **Granularity lives in the bead graph, not in argument-passing
+  between static templates.** A bead's brief is the unit that varies
+  per job; the graph shape (which idiom, how the beads wire together)
+  is the reusable part. There's no separate "canonical building-block
+  formula" layer to worry about sizing — the architect just picks an
+  idiom and instantiates it as beads.
+- **The choreographer is the composition mechanism claim 2 was
+  reaching for**, not a wisp-pours-a-child-wisp runtime primitive: it
+  observes close signals and mutates the graph in response
+  (`choreographer-eval.md`, the `choreo-n10` eval data). Composition
+  is a live tier's judgment call, not a static contract.
+
+The remaining open question is narrower than the original one:
+library curation quality (which idioms are in the menu, how they're
+described) directly bounds what the architect can produce, so
+*that's* the surface worth iterating on — not formula granularity.
 
 ## See also
 
 - [`principles.md`](principles.md) — the load-bearing design principles.
-- [`state.md`](state.md) — current empirical footing.
-- [`throughput-mode.md`](throughput-mode.md) — plan for testing claims 2-5.
-- [`archive/`](archive/) — historical exploration: the position's full prose, decisions log, ntm tutorial, conversation that mapped the landscape.
+- [`state.md`](state.md) — frozen claim-1 validation record.
+- [`plan-evals.md`](plan-evals.md) — the live empirical-evidence hub (claims 3, 5, and the architect/choreographer bench).
+- [`choreography-idioms.md`](choreography-idioms.md) — the idiom library referenced above.
+- [`deleted.md`](deleted.md) — index of what the 2026-07-25 reorg removed, including the archive/ this section used to point at.
