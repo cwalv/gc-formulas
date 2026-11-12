@@ -18,7 +18,6 @@ evidence, and the bench harness that produced it.
 | [`plan-evals.md`](plan-evals.md) | The live empirical-evidence hub: findings tables, architect-tier results, the bench methodology |
 | [`choreographer-eval.md`](choreographer-eval.md) | Choreographer-tier eval design: role contract, worker signaling vocabulary, mutation rubric |
 | [`two-phase-commit-eval.md`](two-phase-commit-eval.md) | Two-phase-commit choreography idiom eval design |
-| [`beads-ui-docs-refresh-runbook.md`](beads-ui-docs-refresh-runbook.md) | Runbook: refreshing the beads-ui handbook against upstream tips |
 | [`journey.html`](journey.html) | Generated narrative of the four-phase pivot from formula pack to model-as-orchestrator |
 | [`deleted.md`](deleted.md) | Index of what the 2026-07-25 reorg removed, with recovery instructions |
 
